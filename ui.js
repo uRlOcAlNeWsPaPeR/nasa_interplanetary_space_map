@@ -319,6 +319,7 @@
     var dustZone = zones.filter(function (zone) { return zone.hz.pattern === "particles"; })[0];
     setDustZone(dustZone || null);
     updateMapLegend();
+    if (view3d) view3d.markDirty();
   }
 
   function drawSites() {
@@ -376,6 +377,7 @@
     if (!zone) {
       dust.particles = [];
       fx.clearRect(0, 0, W, H);
+      if (view3d) view3d.markDirty();
       return;
     }
     // Particles are a lighter version of the dust hazard color.
@@ -454,6 +456,7 @@
       fx.fillStyle = "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + alpha.toFixed(3) + ")";
       fx.fillRect(p.x, p.y, p.size, p.size);
     }
+    if (view3d) view3d.markDirty();
   }
 
   // ---- legends and panels ---------------------------------------------------
@@ -654,25 +657,245 @@
     };
   }
 
-  canvas.addEventListener("click", function (event) {
-    selected = eventToNormalized(event);
-    var site = nearestSite(selected.nx, selected.ny);
+  // Shared by the 2D canvas and the 3D view.
+  function selectAt(p) {
+    selected = p;
+    var site = nearestSite(p.nx, p.ny);
     if (site) selected = { nx: site.nx, ny: site.ny }; // snap to the site
     render();
     showInfo();
-  });
+  }
 
-  canvas.addEventListener("mousemove", function (event) {
-    var p = eventToNormalized(event);
+  function showHover(p) {
+    if (!p) {
+      hoverReadout.textContent = "";
+      return;
+    }
     var sample = data.sampleTerrainAt(p.nx, p.ny);
     hoverReadout.textContent = FIELDS.map(function (field) {
       var over = isOver(field.key, sample[field.key]) ? " ▲" : "";
       return field.label + " " + field.format(sample[field.key]) + over;
     }).join("  ·  ");
+  }
+
+  canvas.addEventListener("click", function (event) {
+    selectAt(eventToNormalized(event));
+  });
+
+  canvas.addEventListener("mousemove", function (event) {
+    showHover(eventToNormalized(event));
   });
 
   canvas.addEventListener("mouseleave", function () {
-    hoverReadout.textContent = "";
+    showHover(null);
+  });
+
+  // ---- 3D view --------------------------------------------------------------
+  //
+  // The 2D map (layers, hazards, route, sites, selection) is drawn exactly as
+  // before and then draped as a texture over a terrain mesh built from
+  // MarsData.getElevationGrid(), so every 2D feature shows up in 3D too.
+
+  var PLANE_W = 4;            // world units; depth follows the map's aspect
+  var PLANE_H = PLANE_W * H / W;
+  var MESH_SEG_X = 240;       // mesh resolution
+  var MESH_SEG_Y = Math.round(MESH_SEG_X * H / W);
+  var HEIGHT_SCALE = 0.55;    // world units for the full elevation range (exaggerated)
+  var PIN_HEIGHT = 0.22;
+  var SCENE_BG = 0x14100e;
+  var CLICK_SLOP = 5;         // px a press may move and still count as a click
+  var CAMERA_START = { x: 0, y: 2.9, z: 3.3 };
+
+  var map3dEl = document.getElementById("map-3d");
+  var mapWrap = document.getElementById("map-wrap");
+  var viewButtons = [].slice.call(document.querySelectorAll(".view-toggle button"));
+  var view3d = null;
+  var viewMode = "2d";
+
+  function create3d() {
+    var T = window.THREE;
+    var renderer = new T.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.outputEncoding = T.sRGBEncoding;
+    map3dEl.appendChild(renderer.domElement);
+
+    var scene = new T.Scene();
+    scene.background = new T.Color(SCENE_BG);
+    var camera = new T.PerspectiveCamera(40, W / H, 0.05, 50);
+    camera.position.set(CAMERA_START.x, CAMERA_START.y, CAMERA_START.z);
+
+    var controls = new T.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.maxPolarAngle = Math.PI * 0.46; // don't go below the ground
+    controls.minDistance = 1.2;
+    controls.maxDistance = 8;
+    controls.target.set(0, 0, 0);
+    controls.update();
+
+    // Texture = 2D map canvas + dust particle canvas, recomposed when they change.
+    var comp = document.createElement("canvas");
+    comp.width = W;
+    comp.height = H;
+    var compCtx = comp.getContext("2d");
+    var texture = new T.CanvasTexture(comp);
+    texture.encoding = T.sRGBEncoding;
+    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+    // Terrain mesh from the contract's elevation grid. PlaneGeometry vertices
+    // run row by row from the top edge, the same order as the grid.
+    var geom = new T.PlaneGeometry(PLANE_W, PLANE_H, MESH_SEG_X, MESH_SEG_Y);
+    var grid = data.getElevationGrid(MESH_SEG_X + 1, MESH_SEG_Y + 1);
+    var range = withRange(grid);
+    function heightOf(e) {
+      return (e - range.min) / (range.max - range.min || 1) * HEIGHT_SCALE;
+    }
+    var pos = geom.attributes.position;
+    for (var i = 0; i < pos.count; i++) pos.setZ(i, heightOf(grid[i]));
+    geom.computeVertexNormals();
+
+    var mesh = new T.Mesh(geom, new T.MeshLambertMaterial({ map: texture }));
+    mesh.rotation.x = -Math.PI / 2; // lie flat; top of the map is the far side
+    scene.add(mesh);
+
+    // Lighting is gentle because the texture already carries hillshading.
+    scene.add(new T.AmbientLight(0xffffff, 0.72));
+    var sun = new T.DirectionalLight(0xffffff, 0.5);
+    sun.position.set(-2, 3, 1);
+    scene.add(sun);
+
+    // Site pins standing up from the terrain, in the site-type colors.
+    sites.forEach(function (site) {
+      var color = new T.Color(SITE_COLORS[site.type] || SITE_FALLBACK_COLOR);
+      var x = (site.nx - 0.5) * PLANE_W;
+      var z = (site.ny - 0.5) * PLANE_H;
+      var y = heightOf(data.sampleTerrainAt(site.nx, site.ny).elevation);
+      var stem = new T.Mesh(
+        new T.CylinderGeometry(0.006, 0.006, PIN_HEIGHT, 6),
+        new T.MeshBasicMaterial({ color: 0xf1e7df })
+      );
+      stem.position.set(x, y + PIN_HEIGHT / 2, z);
+      var head = new T.Mesh(new T.SphereGeometry(0.035, 16, 12), new T.MeshBasicMaterial({ color: color }));
+      head.position.set(x, y + PIN_HEIGHT, z);
+      scene.add(stem);
+      scene.add(head);
+    });
+
+    // Picking: ray from the pointer to the terrain, read the texture coords.
+    var raycaster = new T.Raycaster();
+    var ndc = new T.Vector2();
+    function pick(event) {
+      var rect = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(ndc, camera);
+      var hit = raycaster.intersectObject(mesh)[0];
+      return hit && hit.uv ? { nx: hit.uv.x, ny: 1 - hit.uv.y } : null;
+    }
+
+    var downAt = null;
+    var el = renderer.domElement;
+    el.addEventListener("pointerdown", function (e) { downAt = { x: e.clientX, y: e.clientY }; });
+    el.addEventListener("pointerup", function (e) {
+      if (!downAt || e.button !== 0) return;
+      var moved = Math.abs(e.clientX - downAt.x) + Math.abs(e.clientY - downAt.y);
+      downAt = null;
+      if (moved > CLICK_SLOP) return; // that was a drag to rotate
+      var p = pick(e);
+      if (p) selectAt(p);
+    });
+    el.addEventListener("pointermove", function (e) {
+      var p = pick(e);
+      el.classList.toggle("on-terrain", !!p);
+      showHover(p);
+    });
+    el.addEventListener("pointerleave", function () { showHover(null); });
+
+    var dirty = true;
+    var running = false;
+
+    function resize() {
+      var w = map3dEl.clientWidth;
+      if (!w) return;
+      var h = Math.round(w * H / W);
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    if (window.ResizeObserver) {
+      new ResizeObserver(resize).observe(map3dEl);
+    } else {
+      window.addEventListener("resize", resize);
+    }
+
+    function frame() {
+      if (viewMode !== "3d") {
+        running = false;
+        return;
+      }
+      controls.update();
+      if (dirty) {
+        compCtx.drawImage(canvas, 0, 0);
+        compCtx.drawImage(fxCanvas, 0, 0);
+        texture.needsUpdate = true;
+        dirty = false;
+      }
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+
+    return {
+      markDirty: function () { dirty = true; },
+      start: function () {
+        resize();
+        dirty = true;
+        if (!running) {
+          running = true;
+          requestAnimationFrame(frame);
+        }
+      },
+      resetView: function () {
+        camera.position.set(CAMERA_START.x, CAMERA_START.y, CAMERA_START.z);
+        controls.target.set(0, 0, 0);
+        controls.update();
+      }
+    };
+  }
+
+  function has3d() {
+    if (!window.THREE || !window.THREE.OrbitControls) return false;
+    try {
+      var test = document.createElement("canvas");
+      return !!(test.getContext("webgl") || test.getContext("experimental-webgl"));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function setView(mode) {
+    if (mode === "3d" && !has3d()) mode = "2d";
+    viewMode = mode;
+    mapWrap.classList.toggle("is-3d", mode === "3d");
+    viewButtons.forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.getAttribute("data-view") === mode));
+    });
+    showHover(null);
+    if (mode === "3d") {
+      if (!view3d) view3d = create3d();
+      view3d.start();
+    }
+  }
+
+  viewButtons.forEach(function (b) {
+    b.addEventListener("click", function () { setView(b.getAttribute("data-view")); });
+  });
+  if (!has3d()) {
+    var btn3d = viewButtons.filter(function (b) { return b.getAttribute("data-view") === "3d"; })[0];
+    btn3d.disabled = true;
+    btn3d.title = "3D needs WebGL and the three.js script (internet connection)";
+  }
+  document.getElementById("reset-view").addEventListener("click", function () {
+    if (view3d) view3d.resetView();
   });
 
   document.getElementById("clear-sample").addEventListener("click", function () {
@@ -692,6 +915,7 @@
   buildSiteLegend();
   render();
   showInfo();
+  setView("3d");
 
   // Prepare the hazard fields after first paint, so the first slider drag
   // doesn't stall while they are sampled.

@@ -51,6 +51,34 @@
       color: var(--muted);
     }
     #map-wrap { position: relative; }
+    #map-stage { position: relative; }
+    .map-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+      margin-bottom: 8px;
+    }
+    .map-toolbar button { width: auto; margin: 0; padding: 4px 12px; }
+    .view-toggle { display: inline-flex; }
+    .view-toggle button { border-radius: 0; }
+    .view-toggle button:first-child { border-radius: 6px 0 0 6px; }
+    .view-toggle button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+    .view-toggle button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #14100e; font-weight: 600; }
+    .view-toggle button:disabled { opacity: .45; cursor: not-allowed; }
+    .map-hint { color: var(--muted); font-size: 12px; }
+    #map-3d { display: none; }
+    #map-wrap.is-3d #map, #map-wrap.is-3d #map-fx { display: none; }
+    #map-wrap.is-3d #map-3d { display: block; }
+    #map-wrap:not(.is-3d) .only-3d { display: none; }
+    #map-3d canvas {
+      display: block;
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      cursor: grab;
+    }
+    #map-3d canvas.on-terrain { cursor: crosshair; }
     #map {
       display: block;
       width: 100%;
@@ -180,9 +208,20 @@
       <div id="site-legend" class="section"></div>
     </aside>
     <section id="map-wrap">
-      <canvas id="map" width="720" height="540"></canvas>
-      <canvas id="map-fx" width="720" height="540" aria-hidden="true"></canvas>
-      <div id="map-legend" hidden></div>
+      <div class="map-toolbar">
+        <div class="view-toggle" role="group" aria-label="Map view">
+          <button type="button" data-view="3d">3D</button>
+          <button type="button" data-view="2d">2D</button>
+        </div>
+        <button id="reset-view" class="only-3d" type="button">Reset view</button>
+        <span class="map-hint only-3d">Drag to rotate · right-drag to pan · scroll to zoom</span>
+      </div>
+      <div id="map-stage">
+        <canvas id="map" width="720" height="540"></canvas>
+        <canvas id="map-fx" width="720" height="540" aria-hidden="true"></canvas>
+        <div id="map-3d"></div>
+        <div id="map-legend" hidden></div>
+      </div>
       <div id="hover-readout"></div>
     </section>
     <div class="side">
@@ -199,6 +238,8 @@
       </aside>
     </div>
   </main>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="mock-data.js"></script>
   <script src="ui.js"></script>
   <script src="rover.js"></script>
