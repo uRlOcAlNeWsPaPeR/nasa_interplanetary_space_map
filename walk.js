@@ -96,6 +96,7 @@
   var message = "";      // one-off status (walk done, stopped, called off)
   var rangeCanvas = null;
   var wasStale = null;
+  var wasMoving = null;
   var scene3d = null;
 
   // The plan no longer matches where Ridgeback is (it's driving, or it was moved).
@@ -498,9 +499,12 @@
       computePlan();
       replanned = true;
     }
-    var s = stale();
-    if (s !== wasStale || replanned) {
+    // The card also depends on whether Ridgeback is moving, which can change
+    // while the plan stays out of date (range off, no spot picked yet).
+    var s = stale(), moving = rb.isMoving();
+    if (s !== wasStale || moving !== wasMoving || replanned) {
       wasStale = s;
+      wasMoving = moving;
       set3dRoute();
       if (rangeBox.checked || target) map.redraw();
       renderCard();
