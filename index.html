@@ -79,6 +79,31 @@
       cursor: grab;
     }
     #map-3d canvas.on-terrain { cursor: crosshair; }
+    .rover-controls { display: flex; gap: 6px; }
+    .rover-controls button { margin: 0; padding: 6px 4px; }
+    .rover-controls button.primary { background: var(--accent); border-color: var(--accent); color: #14100e; font-weight: 600; }
+    .rover-controls button[aria-pressed="true"]:not(.primary) { border-color: var(--accent); color: var(--accent); }
+    .rover-controls button:disabled, .rover-row :disabled { opacity: .45; cursor: not-allowed; }
+    .rover-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+    .rover-row input[type="range"] { flex: 1; min-width: 0; }
+    .rover-row select {
+      padding: 3px 4px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+    }
+    #rover-2d {
+      position: absolute;
+      width: 18px;
+      height: 14px;
+      pointer-events: none;
+      background: #f1e7df;
+      clip-path: polygon(100% 50%, 0 0, 22% 50%, 0 100%);
+      filter: drop-shadow(0 0 2px #14100e) drop-shadow(0 0 1px #14100e);
+    }
+    #rover-2d[hidden] { display: none; }
     #map {
       display: block;
       width: 100%;
@@ -220,6 +245,7 @@
         <canvas id="map" width="720" height="540"></canvas>
         <canvas id="map-fx" width="720" height="540" aria-hidden="true"></canvas>
         <div id="map-3d"></div>
+        <div id="rover-2d" hidden aria-hidden="true"></div>
         <div id="map-legend" hidden></div>
       </div>
       <div id="hover-readout"></div>
@@ -235,6 +261,24 @@
         <label class="field">From <select id="route-from"></select></label>
         <label class="field">To <select id="route-to"></select></label>
         <div id="route-summary"></div>
+      </aside>
+      <aside id="rover-panel">
+        <h2>Rover</h2>
+        <div class="rover-controls">
+          <button id="rover-play" type="button" class="primary">Drive</button>
+          <button id="rover-restart" type="button">Restart</button>
+          <button id="rover-follow" type="button" aria-pressed="false">Follow cam</button>
+        </div>
+        <div class="rover-row">
+          <input id="rover-progress" type="range" min="0" max="1000" value="0" aria-label="Rover progress along route">
+          <select id="rover-speed" aria-label="Rover speed">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+        </div>
+        <div id="rover-telemetry"></div>
       </aside>
     </div>
   </main>
