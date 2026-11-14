@@ -58,8 +58,8 @@ export const content = {
 
     hints: {
       firstMove: "Click anywhere on the map to send Ridgeback there. Check the layers first: not every path is safe.",
-      lowPower: "Tip: switch on the Thermal layer to avoid cold zones that drain the battery.",
-      slope: "Tip: the Elevation layer shows steep areas. Darker means steeper.",
+      lowPower: "Tip: switch on the Night-time IR layer. Ground that gets coldest at night (dark blue) drains the battery faster.",
+      slope: "Tip: the Slope layer shows steep ground. Brighter means steeper.",
       dust: "Tip: a dust storm is coming. Sunlit, flat ground is the best place to wait it out.",
       water: "Tip: the Water Ice layer shows where water may be buried. You'll need it to survive.",
     },

@@ -41,8 +41,10 @@
   var AVOID_PENALTY = 200; // extra cost for a cell inside a highlighted hazard zone
   var IMPASSABLE = 5000;   // ground beyond Ridgeback's physical limits
   // Used to judge "hazard ground" when a hazard's highlight slider is off.
-  var CAUTION = { slope: 0.4, dustRisk: 0.58 };
-  var HAZARD_WORDS = { slope: "steep slope", dustRisk: "loose dust" };
+  // dustRisk is the share of the ground the USGS mapped as sand ripples and
+  // dunes (data-layers.js); 0.5 = half the surrounding ground is bedforms.
+  var CAUTION = { slope: 0.4, dustRisk: 0.5 };
+  var HAZARD_WORDS = { slope: "steep slope", dustRisk: "mapped sand" };
   var RISK_LEVELS = [
     { below: 0.3, name: "Low", color: "#5fd08a" },
     { below: 0.5, name: "Moderate", color: "#ffd166" },
@@ -56,15 +58,17 @@
   // 0.012 is ~4.8 units/s, Ridgeback's "slow and steady" top speed.
   var DRIVE_SPEED = 0.012;     // on flat ground, at 1x
   var SLOPE_SLOWDOWN = 0.7;    // at 100% slope the rover runs at 30% speed
-  var DUST_SLOWDOWN = 0.25;    // deep dust costs up to 25% more
+  var DUST_SLOWDOWN = 0.25;    // driving on mapped sand is up to 25% slower
   var REVERSE_FACTOR = 0.5;    // reverse is half speed
   var ACCEL = 2.5;             // how quickly speed follows the throttle
   var TURN_RATE = 1.3;         // radians per second at 1x
 
   // Ridgeback's physical limits (always on, unlike the highlight sliders).
   var MAX_SLOPE = 0.6;         // steeper than this and it would tip over
-  // Tuned to the mock data's range (dust tops out ~0.70); revisit with real data.
-  var DEEP_SAND = 0.64;        // dust risk above this: wheels dig in, only reversing works
+  // Simulated rule: where 80%+ of the ground is mapped as sand bedforms (about
+  // 10% of this map), the wheels dig in and only reversing works. Perseverance
+  // also kept out of Jezero's dense ripple fields.
+  var DEEP_SAND = 0.8;
   var STUCK_REVERSE = 0.4;     // reverse speed factor while dug in
 
   // Battery. The power budget is worked out in watts and watt-hours, using
@@ -77,11 +81,14 @@
   var DRIVE_W = 350;           // extra at top speed: ~500 W total, Curiosity's driving draw
   var PEAK_W = 900;            // Perseverance's peak demand during science activities
   var CLIMB_DRAIN = 5;         // extra drive load per unit of uphill slope
-  var COLD_REF = -55;          // degC; colder than this drains faster...
-  var COLD_DRAIN = 0.03;       // ...by 3% per degree (cold cells deliver less: Perseverance's give ~26% less at -20 degC than +35 degC)
+  // Cold: this map has no measured temperatures, so the simulated cold penalty
+  // follows THEMIS night-time IR (relative): ground that gets coldest at night
+  // drains the battery up to NIGHT_COLD_DRAIN faster. (Cold cells deliver less:
+  // Perseverance's give ~26% less at -20 degC than +35 degC.)
+  var NIGHT_COLD_DRAIN = 0.3;
+  var COLD_GROUND = 0.15;      // night IR below this counts as "extreme cold" ground
   var SPIN_W = 270;            // spinning wheels while dug in
   var SOLAR_W = 1000;          // Ridgeback's panels while stopped, in clear air (Ridgeback is fictional; real rovers use an RTG)
-  var DUST_SHADE = 0.8;        // at 100% dust risk, panels get 20% of the sun
   var LOW_BATTERY = 40;        // NASA keeps Perseverance's battery at or above 40% every sol
   var CRITICAL_BATTERY = 10;
 
@@ -103,6 +110,19 @@
     var dx = a.nx - b.nx;
     var dy = (a.ny - b.ny) * ASPECT;
     return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // A distance in map widths, as ground distance when the map knows its size.
+  function distText(mapWidths) {
+    var scale = data.getScale ? data.getScale() : null;
+    if (!scale) return mapWidths.toFixed(2) + " × map width";
+    var km = mapWidths * scale.widthKm;
+    return km < 1 ? Math.round(km * 1000) + " m" : km.toFixed(km < 10 ? 2 : 1) + " km";
+  }
+
+  function latLon(p) {
+    var ll = data.toLatLon(p.nx, p.ny);
+    return data.formatLatLon(ll.lat, ll.lon);
   }
 
   function formatTime(seconds) {
@@ -646,7 +666,7 @@
       card.appendChild(head);
       card.appendChild(el("span", "route-goal", r.sameAs ? "Same path as " + r.sameAs : r.profile.goal));
       card.appendChild(el("span", "route-stats",
-        m.length.toFixed(2) + "× · " + formatTime(m.time) + " · " +
+        distText(m.length) + " · " + formatTime(m.time) + " · " +
         pct(m.hazShare) + " hazard · risk " + Math.round(m.risk * 100)));
 
       var list = el("ul", "route-points");
@@ -664,11 +684,11 @@
     var m = sel.metrics;
     summary.appendChild(el("h3", "", sel.profile.name + " route"));
     var dl = document.createElement("dl");
-    addRow(dl, "Length", m.length.toFixed(2) + " × map width");
+    addRow(dl, "Length", distText(m.length));
     addRow(dl, "Drive time (1×)", formatTime(m.time));
     addRow(dl, "Total climb", Math.round(m.climb) + " m");
     map.addRow(dl, "Slope exposure", pct(m.slopeShare) + " above " + pct(threshold("slope")), "slope", m.slopeShare > 0.005);
-    map.addRow(dl, "Dust exposure", pct(m.dustShare) + " above " + pct(threshold("dustRisk")), "dustRisk", m.dustShare > 0.005);
+    map.addRow(dl, "Sand exposure", pct(m.dustShare) + " above " + pct(threshold("dustRisk")), "dustRisk", m.dustShare > 0.005);
     addRow(dl, "Hazard crossings", String(m.crossings));
     addRow(dl, "Risk score", Math.round(m.risk * 100) + " / 100 · " + riskLevel(m.risk).name);
     summary.appendChild(dl);
@@ -939,7 +959,7 @@
   }
 
   // Battery: driving drains it (more uphill and in the cold), standing still
-  // in sunlight recharges it (less through dusty air).
+  // in sunlight recharges it (clear-air rate: there is no dust-opacity data here).
   function stepBattery(dt, prevElevation) {
     var s = rover.sample;
     var mul = speedMul();
@@ -948,14 +968,14 @@
     if (moving) {
       var dist = Math.abs(rover.speed) * dt;
       var uphill = dist > 0 && s.elevation > prevElevation ? s.slope : 0;
-      var cold = 1 + Math.max(0, COLD_REF - s.temperature) * COLD_DRAIN;
+      var cold = 1 + (isFinite(s.nightIR) ? (1 - s.nightIR) * NIGHT_COLD_DRAIN : 0);
       // Speed is already scaled by the sim-speed multiplier, and so is the drain.
       var load = (AWAKE_W * mul + DRIVE_W * (Math.abs(rover.speed) / DRIVE_SPEED) * (1 + CLIMB_DRAIN * uphill)) * cold;
       watts = -Math.min(PEAK_W * mul, load);
     } else if (rover.blocked === "deepSand" && input.up) {
       watts = -SPIN_W * mul;
     } else if (!rover.dead && rover.battery < 100) {
-      watts = SOLAR_W * (1 - DUST_SHADE * s.dustRisk) * mul;
+      watts = SOLAR_W * mul;
     } else {
       watts = 0;
     }
@@ -1048,8 +1068,7 @@
     var s = rover.sample;
     if (rover.blocked === "steepSlope") return "steepSlope";
     if (rover.blocked === "deepSand" || rover.stuck) return "deepSand";
-    if (rover.drain < 0 && s.temperature < COLD_REF) return "extremeCold";
-    if (rover.drain > 0 && s.dustRisk > 0.6) return "dustStorm";
+    if (rover.drain < 0 && s.nightIR < COLD_GROUND) return "extremeCold";
     return null;
   }
 
@@ -1058,7 +1077,6 @@
     if (!everMoved) return "firstMove";
     if (rover.battery < LOW_BATTERY) return "lowPower";
     if (s.slope > MAX_SLOPE * 0.75 || rover.blocked === "steepSlope") return "slope";
-    if (s.dustRisk > 0.6) return "dust";
     return null;
   }
 
@@ -1118,12 +1136,15 @@
       " · " + (rover.drain > 0.01 ? "+" : "") + rover.drain.toFixed(1) + "%/s");
     addRow(list, "Heading", compass(rover.heading));
     addRow(list, "Speed", pct(Math.abs(rover.speed) / (DRIVE_SPEED * speedMul())) + " of top speed");
-    if (dest) addRow(list, "To destination", mapDist(rover.pos, dest).toFixed(2) + " × map width");
+    addRow(list, "Position", data.formatLatLon ? latLon(rover.pos) : rover.pos.nx.toFixed(3) + ", " + rover.pos.ny.toFixed(3));
+    if (dest) addRow(list, "To destination", distText(mapDist(rover.pos, dest)));
     if (rover.mode === "auto" && rover.path) addRow(list, "Route progress", pct(rover.s / rover.total));
-    addRow(list, "Elevation", Math.round(s.elevation) + " m");
+    addRow(list, "Elevation", isFinite(s.elevation) ? Math.round(s.elevation).toLocaleString() + " m" : "no data");
     map.addRow(list, "Slope", pct(s.slope) + " (limit " + pct(MAX_SLOPE) + ")", "slope", map.isOverHazardLimit("slope", s.slope));
-    map.addRow(list, "Dust risk", pct(s.dustRisk), "dustRisk", map.isOverHazardLimit("dustRisk", s.dustRisk));
-    addRow(list, "Temperature", s.temperature.toFixed(1) + " °C");
+    map.addRow(list, "Mapped sand", pct(s.dustRisk), "dustRisk", map.isOverHazardLimit("dustRisk", s.dustRisk));
+    addRow(list, "Night-time IR", isFinite(s.nightIR) ? s.nightIR.toFixed(2) + " (relative)" : "no data");
+    var unit = data.getUnit ? data.getUnit(s.geology) : null;
+    if (unit) addRow(list, "Geologic unit", unit.name);
     telemetry.appendChild(list);
     if (rover.mode === "auto" && rover.path && (rover.playing || rover.arrived)) {
       progressInput.value = String(Math.round(rover.s / rover.total * 1000));
@@ -1276,7 +1297,7 @@
       custom.value = "custom";
       toSelect.appendChild(custom);
     }
-    custom.textContent = "Clicked point (" + p.nx.toFixed(2) + ", " + p.ny.toFixed(2) + ")";
+    custom.textContent = "Clicked point (" + (data.formatLatLon ? latLon(p) : p.nx.toFixed(2) + ", " + p.ny.toFixed(2)) + ")";
     toSelect.value = "custom";
     setDestination({ nx: p.nx, ny: p.ny, name: custom.textContent }, !rover.dead);
   });
