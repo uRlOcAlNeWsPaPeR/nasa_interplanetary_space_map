@@ -78,7 +78,57 @@
     .hazard-row { padding: 4px 0; }
     .hazard-row input[type="range"] { width: 100%; margin: 4px 0 0; }
     .hazard-head { display: flex; justify-content: space-between; }
-    .hazard-head span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .hazard-head > span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .hazard-name { display: flex; align-items: center; gap: 8px; }
+    .hazard-row.is-on .hazard-head > span:last-child { color: var(--hz); font-weight: 600; }
+
+    /* Each hazard swatch shows its color AND its map texture. */
+    .hazard-swatch {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      margin-right: 6px;
+      vertical-align: -2px;
+      border-radius: 3px;
+      border: 2px solid var(--hz);
+      flex: none;
+    }
+    .hazard-name .hazard-swatch { margin-right: 0; }
+    .hazard-swatch--hatch {
+      background: repeating-linear-gradient(45deg, var(--hz) 0 2px, transparent 2px 5px);
+    }
+    .hazard-swatch--particles {
+      background: radial-gradient(circle, var(--hz) 1px, transparent 1.5px) 0 0 / 4px 4px;
+    }
+    dd.over { color: var(--hz); font-weight: 600; }
+
+    #map-fx {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: auto;
+      pointer-events: none;
+    }
+    #map-legend {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: grid;
+      gap: 6px;
+      padding: 8px 10px;
+      max-width: calc(100% - 20px);
+      background: rgba(20, 16, 14, .82);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 12px;
+      pointer-events: none;
+    }
+    #map-legend[hidden] { display: none; }
+    .map-legend-row { display: flex; align-items: center; gap: 8px; }
+    .map-legend-row .hazard-swatch { margin-right: 0; }
+    .map-legend-row span { color: var(--muted); }
+    .map-legend-row strong { color: var(--text); font-weight: 600; }
     .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
     .section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
     button {
@@ -131,6 +181,8 @@
     </aside>
     <section id="map-wrap">
       <canvas id="map" width="720" height="540"></canvas>
+      <canvas id="map-fx" width="720" height="540" aria-hidden="true"></canvas>
+      <div id="map-legend" hidden></div>
       <div id="hover-readout"></div>
     </section>
     <div class="side">

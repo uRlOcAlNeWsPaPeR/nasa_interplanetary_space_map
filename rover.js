@@ -231,8 +231,12 @@
     var list = document.createElement("dl");
     addRow(list, "Length", s.length.toFixed(2) + " × map width");
     addRow(list, "Total climb", Math.round(s.climb) + " m");
-    addRow(list, "Steepest slope", Math.round(s.maxSlope * 100) + "%");
-    addRow(list, "Highest dust risk", Math.round(s.maxDust * 100) + "%");
+    // Hazard rows use the map's hazard colors, and flag the route when it
+    // passes through an active hazard zone.
+    map.addRow(list, "Steepest slope", Math.round(s.maxSlope * 100) + "%", "slope",
+      map.isOverHazardLimit("slope", s.maxSlope));
+    map.addRow(list, "Highest dust risk", Math.round(s.maxDust * 100) + "%", "dustRisk",
+      map.isOverHazardLimit("dustRisk", s.maxDust));
     summary.appendChild(list);
   }
 
@@ -257,5 +261,6 @@
   fromSelect.addEventListener("change", update);
   toSelect.addEventListener("change", update);
   map.addOverlay(drawRoute);
+  map.onHazardChange(function () { if (route) showSummary(""); });
   update();
 })();

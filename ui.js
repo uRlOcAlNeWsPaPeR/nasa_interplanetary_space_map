@@ -1,10 +1,11 @@
 /*
- * ui.js -- layer toggle panel, map canvas, click-to-sample info panel.
+ * ui.js -- layer toggle panel, map canvas, click-to-sample info panel,
+ * hazard highlighting.
  *
  * RULE: no terrain data, site names or layer names are hardcoded here.
  * Everything comes from window.MarsData (see mock-data.js for the contract).
  * What lives here is presentation only: colors, labels for the sample
- * fields, units and number formatting.
+ * fields, units, number formatting and visual effects.
  */
 (function () {
   "use strict";
@@ -13,6 +14,9 @@
 
   var canvas = document.getElementById("map");
   var ctx = canvas.getContext("2d");
+  var fxCanvas = document.getElementById("map-fx");
+  var fx = fxCanvas.getContext("2d");
+  var mapLegend = document.getElementById("map-legend");
   var layerList = document.getElementById("layer-list");
   var hazardList = document.getElementById("hazard-list");
   var siteLegend = document.getElementById("site-legend");
@@ -46,12 +50,33 @@
   var SITE_SNAP_RADIUS = 0.035; // normalized distance for "you clicked a site"
 
   // Sample fields (0-1) that get a "highlight above this limit" slider.
-  var HAZARD_KEYS = ["slope", "dustRisk"];
-  var HAZARD_TINT = [235, 60, 50];
-  var BASE_GRAY = 46; // map colour where no layer is showing
+  // Each hazard has its own color AND its own texture, so they stay apart
+  // even where they overlap or for viewers who can't tell the colors apart.
+  // Colors are chosen to stand out from the red-brown terrain.
+  var HAZARDS = [
+    { key: "slope", color: [236, 72, 255], pattern: "hatch", patternName: "hatched" },          // magenta
+    { key: "dustRisk", color: [40, 215, 255], pattern: "particles", patternName: "drifting dust" } // cyan
+  ];
+  var HAZARD_SMOOTH_RADIUS = 3;  // px; smooths zone edges so they don't speckle
+  var HAZARD_EDGE = 2;           // px width of the colored zone border
+  var HATCH_SPACING = 8;         // px between slope hatch lines
+  var HATCH_WIDTH = 2;           // px width of each hatch line
+  var BASE_GRAY = 46;            // map colour where no layer is showing
+
+  // Dust particles: purely visual, drifting with a made-up display "wind".
+  var DUST_WIND = { x: 0.45, y: 0.12 };  // px per frame
+  var DUST_PER_PIXELS = 220;             // one particle per this many zone pixels
+  var DUST_MAX_PARTICLES = 420;
+  var DUST_LIFE = { min: 70, max: 160 }; // frames
 
   function percent(v) {
     return Math.round(v * 100) + "%";
+  }
+
+  function css(rgb, alpha) {
+    return alpha === undefined
+      ? "rgb(" + rgb.join(",") + ")"
+      : "rgba(" + rgb.join(",") + "," + alpha + ")";
   }
 
   // ---- state ----------------------------------------------------------------
@@ -63,14 +88,40 @@
   var enabled = {};
   var opacity = {};    // layer name -> 0..1
   var limits = {};     // hazard field key -> 0..1, 1 means "off"
+  var coverage = {};   // hazard field key -> share of the map inside the zone
   var selected = null; // { nx, ny }
   var fieldCache = {}; // key -> { values: Float32Array, min, max }
-  var overlays = []; // extra draw(ctx, W, H) callbacks, e.g. the route from rover.js
+  var smoothCache = {};
+  var overlays = [];   // extra draw(ctx, W, H) callbacks, e.g. the route from rover.js
+  var hazardListeners = [];
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Hook for other modules to draw on the map (drawn under the site markers).
+  function hazardFor(key) {
+    for (var i = 0; i < HAZARDS.length; i++) {
+      if (HAZARDS[i].key === key) return HAZARDS[i];
+    }
+    return null;
+  }
+
+  function fieldFor(key) {
+    return FIELDS.filter(function (f) { return f.key === key; })[0];
+  }
+
+  function isOver(key, value) {
+    return key in limits && limits[key] < 1 && value > limits[key];
+  }
+
+  // Hook for other modules (rover.js) to draw on the map and to match the
+  // hazard colors and limits.
   window.MapUI = {
     addOverlay: function (draw) { overlays.push(draw); },
-    redraw: function () { render(); }
+    redraw: function () { render(); },
+    hazardColor: function (key) {
+      var hz = hazardFor(key);
+      return hz ? css(hz.color) : null;
+    },
+    isOverHazardLimit: isOver,
+    onHazardChange: function (cb) { hazardListeners.push(cb); }
   };
 
   // ---- sampling the data module into per-pixel fields ------------------------
@@ -109,6 +160,39 @@
     return fieldCache[key];
   }
 
+  // Box-blurred copy of a field, used only to decide hazard zone shapes,
+  // so the zones are smooth regions instead of noisy speckle.
+  function getSmoothField(key) {
+    if (smoothCache[key]) return smoothCache[key];
+    var src = getField(key).values;
+    var tmp = new Float32Array(W * H);
+    var out = new Float32Array(W * H);
+    var r = HAZARD_SMOOTH_RADIUS;
+    var x, y, k, sum, n;
+    for (y = 0; y < H; y++) {
+      for (x = 0; x < W; x++) {
+        sum = 0; n = 0;
+        for (k = -r; k <= r; k++) {
+          var xx = x + k;
+          if (xx >= 0 && xx < W) { sum += src[y * W + xx]; n++; }
+        }
+        tmp[y * W + x] = sum / n;
+      }
+    }
+    for (y = 0; y < H; y++) {
+      for (x = 0; x < W; x++) {
+        sum = 0; n = 0;
+        for (k = -r; k <= r; k++) {
+          var yy = y + k;
+          if (yy >= 0 && yy < H) { sum += tmp[yy * W + x]; n++; }
+        }
+        out[y * W + x] = sum / n;
+      }
+    }
+    smoothCache[key] = out;
+    return out;
+  }
+
   // ---- drawing --------------------------------------------------------------
 
   function rampColor(ramp, t, out) {
@@ -118,6 +202,31 @@
     out[0] = ramp[i][0] + (ramp[i + 1][0] - ramp[i][0]) * f;
     out[1] = ramp[i][1] + (ramp[i + 1][1] - ramp[i][1]) * f;
     out[2] = ramp[i][2] + (ramp[i + 1][2] - ramp[i][2]) * f;
+  }
+
+  // True if any pixel within d (4 directions) of (x, y) has mask value `want`.
+  function neighbor(mask, x, y, d, want) {
+    for (var s = 1; s <= d; s++) {
+      if (x - s >= 0 && mask[y * W + x - s] === want) return true;
+      if (x + s < W && mask[y * W + x + s] === want) return true;
+      if (y - s >= 0 && mask[(y - s) * W + x] === want) return true;
+      if (y + s < H && mask[(y + s) * W + x] === want) return true;
+    }
+    return false;
+  }
+
+  function buildHazardZones() {
+    return HAZARDS.filter(function (hz) { return limits[hz.key] < 1; }).map(function (hz) {
+      var values = getSmoothField(hz.key);
+      var limit = limits[hz.key];
+      var mask = new Uint8Array(W * H);
+      var count = 0;
+      for (var i = 0; i < mask.length; i++) {
+        if (values[i] > limit) { mask[i] = 1; count++; }
+      }
+      coverage[hz.key] = count / mask.length;
+      return { hz: hz, values: values, limit: limit, mask: mask, count: count };
+    });
   }
 
   function render() {
@@ -141,9 +250,8 @@
       if (d.weight > maxWeight) maxWeight = d.weight;
     });
 
-    var hazards = HAZARD_KEYS.filter(function (key) { return limits[key] < 1; }).map(function (key) {
-      return { values: getField(key).values, limit: limits[key] };
-    });
+    HAZARDS.forEach(function (hz) { coverage[hz.key] = 0; });
+    var zones = buildHazardZones();
 
     for (var y = 0; y < H; y++) {
       for (var x = 0; x < W; x++) {
@@ -170,16 +278,31 @@
         var up = elev.values[Math.max(y - 1, 0) * W + x];
         var shade = 1 + ((elev.values[i] - left) + (elev.values[i] - up)) / span * 22;
         shade = shade < 0.55 ? 0.55 : shade > 1.35 ? 1.35 : shade;
-
         r *= shade; g *= shade; b *= shade;
 
-        for (var h = 0; h < hazards.length; h++) {
-          if (hazards[h].values[i] > hazards[h].limit) {
-            r = (r + HAZARD_TINT[0]) / 2;
-            g = (g + HAZARD_TINT[1]) / 2;
-            b = (b + HAZARD_TINT[2]) / 2;
-            break;
+        // Hazards, in order: translucent tint inside the zone (stronger the
+        // further over the limit), slope hatching, a solid colored border,
+        // and a dark halo just outside the border for contrast on any terrain.
+        var inAny = false, edge = null, halo = false;
+        for (var z = 0; z < zones.length; z++) {
+          var zone = zones[z];
+          var c = zone.hz.color;
+          if (zone.mask[i]) {
+            inAny = true;
+            var a = 0.22 + 0.28 * Math.min(1, (zone.values[i] - zone.limit) / 0.25);
+            r += (c[0] - r) * a; g += (c[1] - g) * a; b += (c[2] - b) * a;
+            if (zone.hz.pattern === "hatch" && ((x - y) % HATCH_SPACING + HATCH_SPACING) % HATCH_SPACING < HATCH_WIDTH) {
+              r += (c[0] - r) * 0.85; g += (c[1] - g) * 0.85; b += (c[2] - b) * 0.85;
+            }
+            if (neighbor(zone.mask, x, y, HAZARD_EDGE, 0)) edge = c;
+          } else if (neighbor(zone.mask, x, y, HAZARD_EDGE, 1)) {
+            halo = true;
           }
+        }
+        if (edge) {
+          r = edge[0]; g = edge[1]; b = edge[2];
+        } else if (halo && !inAny) {
+          r *= 0.3; g *= 0.3; b *= 0.3;
         }
 
         px[i * 4] = r;
@@ -192,6 +315,10 @@
     overlays.forEach(function (draw) { draw(ctx, W, H); });
     drawSites();
     drawSelection();
+
+    var dustZone = zones.filter(function (zone) { return zone.hz.pattern === "particles"; })[0];
+    setDustZone(dustZone || null);
+    updateMapLegend();
   }
 
   function drawSites() {
@@ -240,7 +367,124 @@
     ctx.stroke();
   }
 
-  // ---- panels ---------------------------------------------------------------
+  // ---- drifting dust particles (separate canvas on top of the map) ----------
+
+  var dust = { zone: null, particles: [], running: false, color: [0, 0, 0] };
+
+  function setDustZone(zone) {
+    dust.zone = zone;
+    if (!zone) {
+      dust.particles = [];
+      fx.clearRect(0, 0, W, H);
+      return;
+    }
+    // Particles are a lighter version of the dust hazard color.
+    var c = zone.hz.color;
+    dust.color = [c[0] + (255 - c[0]) * 0.6, c[1] + (255 - c[1]) * 0.6, c[2] + (255 - c[2]) * 0.6].map(Math.round);
+    var target = Math.min(DUST_MAX_PARTICLES, Math.round(zone.count / DUST_PER_PIXELS));
+    dust.particles = dust.particles.filter(function (p) {
+      return zone.mask[Math.floor(p.y) * W + Math.floor(p.x)];
+    }).slice(0, target);
+    while (dust.particles.length < target) {
+      var p = spawnParticle(true);
+      if (!p) break;
+      dust.particles.push(p);
+    }
+    if (reduceMotion) {
+      drawParticles();
+    } else if (!dust.running) {
+      dust.running = true;
+      requestAnimationFrame(stepDust);
+    }
+  }
+
+  function spawnParticle(randomAge) {
+    var zone = dust.zone;
+    for (var tries = 0; tries < 40; tries++) {
+      var x = Math.random() * W;
+      var y = Math.random() * H;
+      if (!zone.mask[Math.floor(y) * W + Math.floor(x)]) continue;
+      var life = DUST_LIFE.min + Math.random() * (DUST_LIFE.max - DUST_LIFE.min);
+      return {
+        x: x,
+        y: y,
+        vx: DUST_WIND.x * (0.6 + Math.random() * 0.8),
+        vy: DUST_WIND.y * (0.6 + Math.random() * 0.8),
+        phase: Math.random() * Math.PI * 2,
+        size: 1 + Math.random() * 1.6,
+        life: life,
+        age: randomAge ? Math.random() * life : 0
+      };
+    }
+    return null;
+  }
+
+  function stepDust() {
+    if (!dust.zone) {
+      dust.running = false;
+      return;
+    }
+    var mask = dust.zone.mask;
+    for (var i = 0; i < dust.particles.length; i++) {
+      var p = dust.particles[i];
+      p.age++;
+      p.x += p.vx + Math.sin(p.age * 0.07 + p.phase) * 0.18;
+      p.y += p.vy + Math.cos(p.age * 0.05 + p.phase) * 0.12;
+      var outside = p.x < 0 || p.y < 0 || p.x >= W || p.y >= H || !mask[Math.floor(p.y) * W + Math.floor(p.x)];
+      // Particles leaving the zone fade out quickly instead of vanishing.
+      if (outside && p.age < p.life - 12) p.age = p.life - 12;
+      if (p.age >= p.life) {
+        var fresh = spawnParticle(false);
+        if (fresh) dust.particles[i] = fresh;
+      }
+    }
+    drawParticles();
+    requestAnimationFrame(stepDust);
+  }
+
+  function drawParticles() {
+    fx.clearRect(0, 0, W, H);
+    var c = dust.color;
+    for (var i = 0; i < dust.particles.length; i++) {
+      var p = dust.particles[i];
+      var alpha = Math.sin(Math.PI * Math.min(1, p.age / p.life)) * 0.85;
+      if (alpha <= 0.02) continue;
+      fx.fillStyle = "rgba(10,20,26," + (alpha * 0.6).toFixed(3) + ")";
+      fx.fillRect(p.x + 0.8, p.y + 0.8, p.size, p.size);
+      fx.fillStyle = "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + alpha.toFixed(3) + ")";
+      fx.fillRect(p.x, p.y, p.size, p.size);
+    }
+  }
+
+  // ---- legends and panels ---------------------------------------------------
+
+  function makeSwatch(hz) {
+    var swatch = document.createElement("span");
+    swatch.className = "hazard-swatch hazard-swatch--" + hz.pattern;
+    swatch.style.setProperty("--hz", css(hz.color));
+    return swatch;
+  }
+
+  function updateMapLegend() {
+    mapLegend.textContent = "";
+    var shown = HAZARDS.filter(function (hz) { return limits[hz.key] < 1; });
+    mapLegend.hidden = shown.length === 0;
+    shown.forEach(function (hz) {
+      var field = fieldFor(hz.key);
+      var row = document.createElement("div");
+      row.className = "map-legend-row";
+      row.appendChild(makeSwatch(hz));
+      var text = document.createElement("span");
+      var name = document.createElement("strong");
+      name.textContent = field.label + " > " + field.format(limits[hz.key]);
+      text.appendChild(name);
+      text.appendChild(document.createTextNode(
+        " · " + hz.patternName + " · " + Math.round(coverage[hz.key] * 100) + "% of map"
+      ));
+      row.appendChild(text);
+      mapLegend.appendChild(row);
+    });
+  }
 
   function buildLayerPanel() {
     layerList.textContent = "";
@@ -280,28 +524,41 @@
     return slider;
   }
 
+  function hazardsChanged() {
+    render();
+    showInfo();
+    hazardListeners.forEach(function (cb) { cb(); });
+  }
+
   function buildHazardPanel() {
     hazardList.textContent = "";
-    HAZARD_KEYS.forEach(function (key) {
+    HAZARDS.forEach(function (hz) {
+      var key = hz.key;
       limits[key] = 1;
-      var field = FIELDS.filter(function (f) { return f.key === key; })[0];
+      var field = fieldFor(key);
       var row = document.createElement("div");
       row.className = "hazard-row";
+      row.style.setProperty("--hz", css(hz.color));
       var head = document.createElement("div");
       head.className = "hazard-head";
       var name = document.createElement("span");
-      name.textContent = field.label;
+      name.className = "hazard-name";
+      name.appendChild(makeSwatch(hz));
+      name.appendChild(document.createTextNode(field.label));
       var value = document.createElement("span");
       head.appendChild(name);
       head.appendChild(value);
       var slider = makeSlider(field.label + " limit");
+      slider.style.accentColor = css(hz.color);
       function sync() {
         limits[key] = slider.value / 100;
-        value.textContent = limits[key] < 1 ? "above " + field.format(limits[key]) : "off";
+        var on = limits[key] < 1;
+        row.classList.toggle("is-on", on);
+        value.textContent = on ? "above " + field.format(limits[key]) : "off";
       }
       slider.addEventListener("input", function () {
         sync();
-        render();
+        hazardsChanged();
       });
       sync();
       row.appendChild(head);
@@ -357,19 +614,33 @@
     var list = document.createElement("dl");
     addRow(list, "Position", selected.nx.toFixed(3) + ", " + selected.ny.toFixed(3));
     FIELDS.forEach(function (field) {
-      addRow(list, field.label, field.format(sample[field.key]));
+      var value = sample[field.key];
+      addRow(list, field.label, field.format(value), hazardFor(field.key), isOver(field.key, value));
     });
     infoBody.appendChild(list);
   }
 
-  function addRow(list, label, value) {
+  // Shared with rover.js through the same markup: a hazard row gets the
+  // hazard's swatch, and a value over the active limit is shown in its color.
+  function addRow(list, label, value, hz, over) {
     var dt = document.createElement("dt");
-    dt.textContent = label;
+    if (hz) dt.appendChild(makeSwatch(hz));
+    dt.appendChild(document.createTextNode(label));
     var dd = document.createElement("dd");
     dd.textContent = value;
+    if (hz && over) {
+      dd.className = "over";
+      dd.style.setProperty("--hz", css(hz.color));
+      dd.textContent = value + " ▲";
+      dd.title = "Above the " + label.toLowerCase() + " limit";
+    }
     list.appendChild(dt);
     list.appendChild(dd);
   }
+
+  window.MapUI.addRow = function (list, label, value, key, over) {
+    addRow(list, label, value, hazardFor(key), over);
+  };
 
   // ---- interaction ----------------------------------------------------------
 
@@ -395,7 +666,8 @@
     var p = eventToNormalized(event);
     var sample = data.sampleTerrainAt(p.nx, p.ny);
     hoverReadout.textContent = FIELDS.map(function (field) {
-      return field.label + " " + field.format(sample[field.key]);
+      var over = isOver(field.key, sample[field.key]) ? " ▲" : "";
+      return field.label + " " + field.format(sample[field.key]) + over;
     }).join("  ·  ");
   });
 
@@ -412,7 +684,7 @@
   document.getElementById("reset-layers").addEventListener("click", function () {
     buildLayerPanel();
     buildHazardPanel();
-    render();
+    hazardsChanged();
   });
 
   buildLayerPanel();
@@ -420,4 +692,10 @@
   buildSiteLegend();
   render();
   showInfo();
+
+  // Prepare the hazard fields after first paint, so the first slider drag
+  // doesn't stall while they are sampled.
+  setTimeout(function () {
+    HAZARDS.forEach(function (hz) { getSmoothField(hz.key); });
+  }, 0);
 })();
