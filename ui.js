@@ -16,7 +16,8 @@
   var ctx = canvas.getContext("2d");
   var fxCanvas = document.getElementById("map-fx");
   var fx = fxCanvas.getContext("2d");
-  var mapLegend = document.getElementById("map-legend");
+  var mapLegend = document.getElementById("map-legend-hazards");
+  var sendRoverBtn = document.getElementById("send-rover");
   var layerList = document.getElementById("layer-list");
   var hazardList = document.getElementById("hazard-list");
   var siteLegend = document.getElementById("site-legend");
@@ -121,7 +122,14 @@
       return hz ? css(hz.color) : null;
     },
     isOverHazardLimit: isOver,
-    onHazardChange: function (cb) { hazardListeners.push(cb); }
+    // Active limit for a hazard (0-1), or null when its highlight is off.
+    hazardLimit: function (key) {
+      return key in limits && limits[key] < 1 ? limits[key] : null;
+    },
+    hazardKeys: function () { return HAZARDS.map(function (hz) { return hz.key; }); },
+    onHazardChange: function (cb) { hazardListeners.push(cb); },
+    // The point last clicked on the map, or null.
+    getSelected: function () { return selected ? { nx: selected.nx, ny: selected.ny } : null; }
   };
 
   // ---- sampling the data module into per-pixel fields ------------------------
@@ -289,10 +297,11 @@
           var c = zone.hz.color;
           if (zone.mask[i]) {
             inAny = true;
-            var a = 0.22 + 0.28 * Math.min(1, (zone.values[i] - zone.limit) / 0.25);
+            // Kept light so the terrain underneath stays readable.
+            var a = 0.14 + 0.22 * Math.min(1, (zone.values[i] - zone.limit) / 0.25);
             r += (c[0] - r) * a; g += (c[1] - g) * a; b += (c[2] - b) * a;
             if (zone.hz.pattern === "hatch" && ((x - y) % HATCH_SPACING + HATCH_SPACING) % HATCH_SPACING < HATCH_WIDTH) {
-              r += (c[0] - r) * 0.85; g += (c[1] - g) * 0.85; b += (c[2] - b) * 0.85;
+              r += (c[0] - r) * 0.7; g += (c[1] - g) * 0.7; b += (c[2] - b) * 0.7;
             }
             if (neighbor(zone.mask, x, y, HAZARD_EDGE, 0)) edge = c;
           } else if (neighbor(zone.mask, x, y, HAZARD_EDGE, 1)) {
@@ -468,22 +477,23 @@
     return swatch;
   }
 
+  // Legend lists every hazard (dimmed when off); the route/rover keys below
+  // it are static markup in index.html.
   function updateMapLegend() {
     mapLegend.textContent = "";
-    var shown = HAZARDS.filter(function (hz) { return limits[hz.key] < 1; });
-    mapLegend.hidden = shown.length === 0;
-    shown.forEach(function (hz) {
+    HAZARDS.forEach(function (hz) {
       var field = fieldFor(hz.key);
+      var on = limits[hz.key] < 1;
       var row = document.createElement("div");
-      row.className = "map-legend-row";
+      row.className = "map-legend-row" + (on ? "" : " is-off");
       row.appendChild(makeSwatch(hz));
       var text = document.createElement("span");
       var name = document.createElement("strong");
-      name.textContent = field.label + " > " + field.format(limits[hz.key]);
+      name.textContent = on ? field.label + " > " + field.format(limits[hz.key]) : field.label + " hazard";
       text.appendChild(name);
-      text.appendChild(document.createTextNode(
-        " · " + hz.patternName + " · " + Math.round(coverage[hz.key] * 100) + "% of map"
-      ));
+      text.appendChild(document.createTextNode(on
+        ? " · " + hz.patternName + " · " + Math.round(coverage[hz.key] * 100) + "% of map"
+        : " · off"));
       row.appendChild(text);
       mapLegend.appendChild(row);
     });
@@ -599,6 +609,7 @@
 
   function showInfo() {
     infoBody.textContent = "";
+    sendRoverBtn.disabled = !selected;
     if (!selected) {
       var hint = document.createElement("p");
       hint.className = "empty";
@@ -679,8 +690,73 @@
   }
 
   canvas.addEventListener("click", function (event) {
+    if (zoomDrag.wasDrag) {
+      zoomDrag.wasDrag = false; // that was a pan, not a click
+      return;
+    }
     selectAt(eventToNormalized(event));
   });
+
+  // ---- 2D zoom and pan --------------------------------------------------------
+
+  var ZOOM_MAX = 6;
+  var ZOOM_STEP = 1.4;
+  var stageEl = document.getElementById("map-stage");
+  var zoomEl = document.getElementById("map-zoom");
+  var zoom2d = { s: 1, x: 0, y: 0 };
+  var zoomDrag = { active: false, moved: false, wasDrag: false, x0: 0, y0: 0, ox: 0, oy: 0 };
+
+  function applyZoom() {
+    var w = zoomEl.offsetWidth;
+    var h = zoomEl.offsetHeight;
+    zoom2d.x = Math.min(0, Math.max(w - w * zoom2d.s, zoom2d.x));
+    zoom2d.y = Math.min(0, Math.max(h - h * zoom2d.s, zoom2d.y));
+    zoomEl.style.transform = "translate(" + zoom2d.x + "px," + zoom2d.y + "px) scale(" + zoom2d.s + ")";
+    canvas.classList.toggle("is-zoomed", zoom2d.s > 1);
+  }
+
+  // Zoom by `factor`, keeping the stage point (cx, cy) fixed under the cursor.
+  function zoomAt(factor, cx, cy) {
+    var ns = Math.min(ZOOM_MAX, Math.max(1, zoom2d.s * factor));
+    zoom2d.x = cx - (cx - zoom2d.x) * (ns / zoom2d.s);
+    zoom2d.y = cy - (cy - zoom2d.y) * (ns / zoom2d.s);
+    zoom2d.s = ns;
+    applyZoom();
+  }
+
+  stageEl.addEventListener("wheel", function (e) {
+    if (viewMode === "3d") return; // OrbitControls handles 3D
+    e.preventDefault();
+    var rect = stageEl.getBoundingClientRect();
+    zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
+  }, { passive: false });
+
+  canvas.addEventListener("pointerdown", function (e) {
+    if (e.button !== 0) return;
+    zoomDrag.active = true;
+    zoomDrag.moved = false;
+    zoomDrag.x0 = e.clientX; zoomDrag.y0 = e.clientY;
+    zoomDrag.ox = zoom2d.x; zoomDrag.oy = zoom2d.y;
+  });
+  window.addEventListener("pointermove", function (e) {
+    if (!zoomDrag.active) return;
+    var dx = e.clientX - zoomDrag.x0, dy = e.clientY - zoomDrag.y0;
+    if (Math.abs(dx) + Math.abs(dy) > 5) zoomDrag.moved = true;
+    if (zoomDrag.moved && zoom2d.s > 1) {
+      zoom2d.x = zoomDrag.ox + dx;
+      zoom2d.y = zoomDrag.oy + dy;
+      applyZoom();
+    }
+  });
+  window.addEventListener("pointerup", function () {
+    if (!zoomDrag.active) return;
+    zoomDrag.active = false;
+    zoomDrag.wasDrag = zoomDrag.moved && zoom2d.s > 1;
+  });
+
+  function stageCenter() {
+    return { x: stageEl.clientWidth / 2, y: stageEl.clientHeight / 2 };
+  }
 
   canvas.addEventListener("mousemove", function (event) {
     showHover(eventToNormalized(event));
@@ -708,7 +784,7 @@
 
   var map3dEl = document.getElementById("map-3d");
   var mapWrap = document.getElementById("map-wrap");
-  var viewButtons = [].slice.call(document.querySelectorAll(".view-toggle button"));
+  var viewButtons = [].slice.call(document.querySelectorAll("button[data-view]"));
   var view3d = null;
   var viewMode = "2d";
   var ready3d = [];
@@ -930,6 +1006,13 @@
         camera.position.set(CAMERA_START.x, CAMERA_START.y, CAMERA_START.z);
         controls.target.set(0, 0, 0);
         controls.update();
+      },
+      // factor > 1 moves the camera closer to what it's looking at.
+      zoom: function (factor) {
+        var offset = camera.position.clone().sub(controls.target);
+        var dist = Math.min(controls.maxDistance, Math.max(controls.minDistance, offset.length() / factor));
+        camera.position.copy(controls.target).add(offset.setLength(dist));
+        controls.update();
       }
     };
   }
@@ -952,6 +1035,9 @@
       b.setAttribute("aria-pressed", String(b.getAttribute("data-view") === mode));
     });
     showHover(null);
+    document.getElementById("map-hint").textContent = mode === "3d"
+      ? "Drag to rotate · right-drag to pan · scroll to zoom"
+      : "Scroll to zoom · drag to pan when zoomed · click to inspect";
     if (mode === "3d") {
       if (!view3d) view3d = create3d();
       view3d.start();
@@ -968,8 +1054,24 @@
     btn3d.title = "3D needs WebGL and the three.js script (internet connection)";
   }
   document.getElementById("reset-view").addEventListener("click", function () {
-    if (view3d) view3d.resetView();
+    if (viewMode === "3d") {
+      if (view3d) view3d.resetView();
+    } else {
+      zoom2d = { s: 1, x: 0, y: 0 };
+      applyZoom();
+    }
   });
+  [["zoom-in", ZOOM_STEP], ["zoom-out", 1 / ZOOM_STEP]].forEach(function (pair) {
+    document.getElementById(pair[0]).addEventListener("click", function () {
+      if (viewMode === "3d") {
+        if (view3d) view3d.zoom(pair[1]);
+      } else {
+        var c = stageCenter();
+        zoomAt(pair[1], c.x, c.y);
+      }
+    });
+  });
+  window.addEventListener("resize", applyZoom);
 
   document.getElementById("clear-sample").addEventListener("click", function () {
     selected = null;
