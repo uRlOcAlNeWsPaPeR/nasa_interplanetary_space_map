@@ -118,6 +118,7 @@
   var fieldCache = {}; // key -> { values: Float32Array, min, max }
   var smoothCache = {};
   var overlays = [];   // extra draw(ctx, W, H) callbacks, e.g. the route from rover.js
+  var groundOverlays = []; // like overlays, but also painted on the 3D ground (walk.js range)
   var hazardListeners = [];
   var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -140,6 +141,8 @@
   // hazard colors and limits.
   window.MapUI = {
     addOverlay: function (draw) { overlays.push(draw); },
+    // Drawn before the ground is copied to the 3D world, so it shows in both.
+    addGroundOverlay: function (draw) { groundOverlays.push(draw); },
     redraw: function () { render(); },
     hazardColor: function (key) {
       var hz = hazardFor(key);
@@ -384,7 +387,8 @@
       }
     }
     ctx.putImageData(image, 0, 0);
-    // The 3D ground gets terrain + hazards only; labels and routes are 3D objects there.
+    groundOverlays.forEach(function (draw) { draw(ctx, W, H); });
+    // The 3D ground gets terrain + hazards (+ ground overlays) only; labels and routes are 3D objects there.
     if (world) world.updateGround(canvas);
     drawTraverse();
     overlays.forEach(function (draw) { draw(ctx, W, H); });
@@ -1421,8 +1425,9 @@
     var ve = window.MapUI.verticalExaggeration;
     [
       ["observed", "Observed", "Terrain shape and height, the CTX image, THEMIS night IR, USGS geologic units and mapped sand, Perseverance's path and stops, and rover images."],
-      ["computed", "Computed", "Slope (from the elevation model), the ground-risk meter, hazard zones above your limits, and the route options."],
-      ["simulated", "Simulated", "Ridgeback is a fictional rover: its driving, battery, tilt limit and getting stuck in sand are game rules, not NASA ratings. The drifting dust is decoration." +
+      ["computed", "Computed", "Slope (from the elevation model), the ground-risk meter, hazard zones above your limits, the route options, and the walking range and walking routes."],
+      ["simulated", "Simulated", "Ridgeback is a fictional rover: its driving, battery, tilt limit and getting stuck in sand are game rules, not NASA ratings. The drifting dust is decoration. " +
+        "The astronaut's walk is sped up; its limits are NASA's planning figures for the Artemis Moon suit, since NASA has no Mars suit specification yet." +
         (ve ? " In 3D, heights are exaggerated about " + ve.toFixed(1) + "×." : "")]
     ].forEach(function (row) {
       var li = document.createElement("li");

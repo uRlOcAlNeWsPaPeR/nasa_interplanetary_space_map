@@ -67,6 +67,25 @@
       method: "USGS SIM 3464 unit polygons, rasterized to the map grid." }
   };
 
+  // Where the walk planner's limits come from (walk-core.js).
+  var WALK_SOURCES = [
+    { id: "nasa-xeva-lunar-conops",
+      title: "NASA Exploration EVA System: lunar surface concept of operations (2020)",
+      url: "https://www.nasa.gov/wp-content/uploads/2020/01/topic_1-_eva_lunar_surface_concept_of_operations.pdf",
+      what: "Walk planner limits: EVAs of up to 8 hours (6 ± 2), walking on slopes of up to 20°, and about 5 hours to walk back 10 km (2 km/h)",
+      credit: "NASA" },
+    { id: "nasa-dra5",
+      title: "Human Exploration of Mars Design Reference Architecture 5.0 (NASA SP-2009-566)",
+      url: "https://www.nasa.gov/wp-content/uploads/2015/09/373665main_nasa-sp-2009-566.pdf",
+      what: "Mars context: plans assume an EVA walk-back distance of about 15 km",
+      credit: "NASA" },
+    { id: "tobler-1993",
+      title: "Three presentations on geographical analysis and modeling (Tobler's hiking function)",
+      url: "https://escholarship.org/uc/item/05r820mz",
+      what: "How slopes slow the walk: an Earth hiking model, scaled to NASA's 2 km/h on flat ground",
+      credit: "W. Tobler, NCGIA Technical Report 93-1, 1993" }
+  ];
+
   function sourceById(id) {
     var list = (ds && ds.sources) || [];
     for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
@@ -313,7 +332,7 @@
     getGeologyFeatures: getGeologyFeatures,
 
     // provenance
-    getSources: function () { return ok ? ds.sources.slice() : []; },
+    getSources: function () { return ok ? ds.sources.concat(WALK_SOURCES) : []; },
     getChecks: function () { return ok ? ds.checks : null; }
   };
 })();

@@ -507,6 +507,7 @@
   var userPicked = false; // true once the user chooses an option themselves
   var planMessage = "";
   var scene3d = null;
+  var locked = false;     // someone is outside on foot (walk.js): Ridgeback stays parked
 
   function selectedRoute() {
     if (!routes) return null;
@@ -1003,6 +1004,13 @@
   function step(dt) {
     if (!rover.pos) return;
     var prevElevation = rover.sample ? rover.sample.elevation : 0;
+    if (locked) {
+      rover.speed = 0;
+      rover.playing = false;
+      refreshSample();
+      stepBattery(dt, prevElevation);
+      return;
+    }
     if (rover.mode === "manual") {
       stepManual(dt);
       // Keep the suggested routes current as the rover moves.
@@ -1046,9 +1054,10 @@
     panel.classList.toggle("is-manual", !auto);
     modeAutoBtn.setAttribute("aria-pressed", String(auto));
     modeManualBtn.setAttribute("aria-pressed", String(!auto));
-    playBtn.disabled = !has || rover.dead;
-    restartBtn.disabled = !has;
-    progressInput.disabled = !has || !auto;
+    playBtn.disabled = !has || rover.dead || locked;
+    restartBtn.disabled = !has || locked;
+    progressInput.disabled = !has || !auto || locked;
+    modeAutoBtn.disabled = modeManualBtn.disabled = locked;
     playBtn.textContent = rover.playing ? t("rover.buttons.stop")
       : rover.arrived ? t("rover.buttons.again") : t("rover.buttons.start");
     playBtn.setAttribute("aria-pressed", String(rover.playing));
@@ -1799,6 +1808,24 @@
   }
 
   // ---- start ----------------------------------------------------------------
+
+  // For walk.js: where Ridgeback is parked, and keeping it parked while
+  // someone is outside on foot.
+  window.Ridgeback = {
+    position: function () { return rover.pos ? { nx: rover.pos.nx, ny: rover.pos.ny } : null; },
+    isMoving: function () { return rover.playing || Math.abs(rover.speed) > 1e-6; },
+    timeScale: function () { return TIME_SCALE * speedMul(); }, // mission seconds per real second
+    setLocked: function (on) {
+      locked = !!on;
+      if (locked) {
+        rover.playing = false;
+        rover.speed = 0;
+        input.up = input.down = input.left = input.right = false;
+      }
+      syncControls();
+      renderTelemetry();
+    }
+  };
 
   fillSelect(fromSelect, firstOfType("landing", 0), "");
   fillSelect(toSelect, -1, "None");
