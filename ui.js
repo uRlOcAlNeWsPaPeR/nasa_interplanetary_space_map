@@ -711,16 +711,29 @@
   var viewButtons = [].slice.call(document.querySelectorAll(".view-toggle button"));
   var view3d = null;
   var viewMode = "2d";
+  var ready3d = [];
+  var viewListeners = [];
+
+  // Run cb(api) once the 3D scene exists (immediately if it already does).
+  window.MapUI.on3dReady = function (cb) {
+    if (view3d) cb(view3d.api);
+    else ready3d.push(cb);
+  };
+  window.MapUI.viewMode = function () { return viewMode; };
+  window.MapUI.onViewChange = function (cb) { viewListeners.push(cb); };
 
   function create3d() {
     var T = window.THREE;
     var renderer = new T.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.outputEncoding = T.sRGBEncoding;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = T.PCFSoftShadowMap;
     map3dEl.appendChild(renderer.domElement);
 
     var scene = new T.Scene();
     scene.background = new T.Color(SCENE_BG);
+    scene.fog = new T.Fog(SCENE_BG, 6, 12);
     var camera = new T.PerspectiveCamera(40, W / H, 0.05, 50);
     camera.position.set(CAMERA_START.x, CAMERA_START.y, CAMERA_START.z);
 
@@ -756,13 +769,43 @@
 
     var mesh = new T.Mesh(geom, new T.MeshLambertMaterial({ map: texture }));
     mesh.rotation.x = -Math.PI / 2; // lie flat; top of the map is the far side
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
     scene.add(mesh);
 
     // Lighting is gentle because the texture already carries hillshading.
-    scene.add(new T.AmbientLight(0xffffff, 0.72));
-    var sun = new T.DirectionalLight(0xffffff, 0.5);
+    // Sky/ground hemisphere light gives models (the rover) a Mars-tinted fill.
+    scene.add(new T.AmbientLight(0xffffff, 0.5));
+    scene.add(new T.HemisphereLight(0xcfdcff, 0x7a3e22, 0.32));
+    var sun = new T.DirectionalLight(0xfff1e0, 0.62);
     sun.position.set(-2, 3, 1);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -3;
+    sun.shadow.camera.right = 3;
+    sun.shadow.camera.top = 3;
+    sun.shadow.camera.bottom = -3;
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 10;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.01;
+    sun.shadow.camera.updateProjectionMatrix();
     scene.add(sun);
+
+    // Height of the rendered terrain surface at a map position, interpolated
+    // from the same grid the mesh is built from, so things sit exactly on it.
+    function surfaceY(nx, ny) {
+      var gx = Math.min(Math.max(nx, 0), 1) * MESH_SEG_X;
+      var gy = Math.min(Math.max(ny, 0), 1) * MESH_SEG_Y;
+      var x0 = Math.min(Math.floor(gx), MESH_SEG_X - 1);
+      var y0 = Math.min(Math.floor(gy), MESH_SEG_Y - 1);
+      var fx0 = gx - x0, fy0 = gy - y0;
+      var row = MESH_SEG_X + 1;
+      var a = grid[y0 * row + x0], b = grid[y0 * row + x0 + 1];
+      var c = grid[(y0 + 1) * row + x0], d = grid[(y0 + 1) * row + x0 + 1];
+      var e = a + (b - a) * fx0 + (c - a) * fy0 + (a - b - c + d) * fx0 * fy0;
+      return heightOf(e);
+    }
 
     // Site pins standing up from the terrain, in the site-type colors.
     sites.forEach(function (site) {
@@ -828,11 +871,18 @@
       window.addEventListener("resize", resize);
     }
 
-    function frame() {
+    var frameCallbacks = [];
+    var lastFrame = 0;
+
+    function frame(now) {
       if (viewMode !== "3d") {
         running = false;
+        lastFrame = 0;
         return;
       }
+      var dt = lastFrame ? Math.min(0.05, (now - lastFrame) / 1000) : 0;
+      lastFrame = now;
+      frameCallbacks.forEach(function (cb) { cb(dt); });
       controls.update();
       if (dirty) {
         compCtx.drawImage(canvas, 0, 0);
@@ -844,7 +894,29 @@
       requestAnimationFrame(frame);
     }
 
+    // What other modules (rover.js) get to build on the 3D scene.
+    var api = {
+      THREE: T,
+      scene: scene,
+      camera: camera,
+      controls: controls,
+      planeWidth: PLANE_W,
+      planeDepth: PLANE_H,
+      // World-space point on the terrain surface for a map position.
+      surfacePoint: function (nx, ny, lift) {
+        return new T.Vector3((nx - 0.5) * PLANE_W, surfaceY(nx, ny) + (lift || 0), (ny - 0.5) * PLANE_H);
+      },
+      // Map position (nx, ny) for a world-space x/z.
+      toMap: function (x, z) {
+        return { nx: x / PLANE_W + 0.5, ny: z / PLANE_H + 0.5 };
+      },
+      onFrame: function (cb) { frameCallbacks.push(cb); }
+    };
+    ready3d.forEach(function (cb) { cb(api); });
+    ready3d = [];
+
     return {
+      api: api,
       markDirty: function () { dirty = true; },
       start: function () {
         resize();
@@ -884,6 +956,7 @@
       if (!view3d) view3d = create3d();
       view3d.start();
     }
+    viewListeners.forEach(function (cb) { cb(mode); });
   }
 
   viewButtons.forEach(function (b) {
