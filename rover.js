@@ -39,8 +39,9 @@
     { key: "balanced", name: "Balanced", goal: "Balances distance and safety", hazard: 4, risk: 2, color: "#ffd166" }
   ];
   var AVOID_PENALTY = 200; // extra cost for a cell inside a highlighted hazard zone
+  var IMPASSABLE = 5000;   // ground beyond Ridgeback's physical limits
   // Used to judge "hazard ground" when a hazard's highlight slider is off.
-  var CAUTION = { slope: 0.4, dustRisk: 0.65 };
+  var CAUTION = { slope: 0.4, dustRisk: 0.58 };
   var HAZARD_WORDS = { slope: "steep slope", dustRisk: "loose dust" };
   var RISK_LEVELS = [
     { below: 0.3, name: "Low", color: "#5fd08a" },
@@ -51,12 +52,31 @@
 
   // ---- driving tuning ---------------------------------------------------------
 
-  var DRIVE_SPEED = 0.045;     // map widths per second on flat ground, at 1x
+  // Speeds are in map widths per second; the world is 400 units across, so
+  // 0.012 is ~4.8 units/s, Ridgeback's "slow and steady" top speed.
+  var DRIVE_SPEED = 0.012;     // on flat ground, at 1x
   var SLOPE_SLOWDOWN = 0.7;    // at 100% slope the rover runs at 30% speed
   var DUST_SLOWDOWN = 0.25;    // deep dust costs up to 25% more
   var REVERSE_FACTOR = 0.5;    // reverse is half speed
-  var ACCEL = 3.5;             // how quickly manual speed follows the throttle
-  var TURN_RATE = 1.5;         // radians per second at 1x
+  var ACCEL = 2.5;             // how quickly speed follows the throttle
+  var TURN_RATE = 1.3;         // radians per second at 1x
+
+  // Ridgeback's physical limits (always on, unlike the highlight sliders).
+  var MAX_SLOPE = 0.6;         // steeper than this and it would tip over
+  // Tuned to the mock data's range (dust tops out ~0.70); revisit with real data.
+  var DEEP_SAND = 0.64;        // dust risk above this: wheels dig in, only reversing works
+  var STUCK_REVERSE = 0.4;     // reverse speed factor while dug in
+
+  // Battery, in % of a full charge.
+  var DRAIN_RATE = 1.1;        // per second at top speed on flat ground
+  var CLIMB_DRAIN = 5;         // extra drain per unit of uphill slope
+  var COLD_REF = -55;          // degC; colder than this drains faster...
+  var COLD_DRAIN = 0.03;       // ...by 3% per degree
+  var SPIN_DRAIN = 0.6;        // per second spinning wheels while stuck
+  var SOLAR_RATE = 2.2;        // recharge per second while stopped, in clear air
+  var DUST_SHADE = 0.8;        // at 100% dust risk, panels get 20% of the sun
+  var LOW_BATTERY = 25;
+  var CRITICAL_BATTERY = 10;
   var SMOOTH_PASSES = 3;       // corner rounding of the planner's grid path
   var TELEMETRY_EVERY = 0.15;  // seconds between panel updates
   var REPLAN_EVERY = 0.7;      // seconds between route updates while driving manually
@@ -142,6 +162,7 @@
       var risk = Math.min(1, Math.max(s / (2 * thrS), d / (2 * thrD)));
       var c = 1 + (onHazard ? profile.hazard : 0) + profile.risk * risk;
       if ((limS !== null && s > limS) || (limD !== null && d > limD)) c += AVOID_PENALTY;
+      if (s > MAX_SLOPE || d > DEEP_SAND) c += IMPASSABLE; // Ridgeback can't drive there at all
       cost[i] = c;
     }
     return cost;
@@ -166,7 +187,7 @@
     points.forEach(function (p) {
       maxCost = Math.max(maxCost, cost[toCell(p.ny, GRID_H) * GRID_W + toCell(p.nx, GRID_W)]);
     });
-    if (maxCost >= AVOID_PENALTY) maxCost = 1; // path had to cross a zone; keep elsewhere clear
+    if (maxCost >= AVOID_PENALTY) maxCost = 1; // path had to cross a zone/limit; keep elsewhere clear
     var out = [points[0]];
     var i = 0;
     while (i < points.length - 1) {
@@ -434,9 +455,12 @@
     mode: "auto",    // "auto" follows the route, "manual" is driven by the user
     playing: false,
     arrived: false,
-    follow: false,
     sample: null,    // terrain under the rover
-    blocked: null,   // why manual movement was stopped, if it was
+    blocked: null,   // limit that stopped the rover: "steepSlope" | "deepSand" | "zone" | "edge"
+    stuck: false,    // dug into deep sand
+    battery: 100,
+    dead: false,     // battery ran out
+    drain: 0,        // current battery change per second (for the readout)
     path: null, cum: null, total: 0, s: 0 // the route being followed
   };
 
@@ -466,7 +490,7 @@
     recommended = null;
     planMessage = "";
     if (!dest) {
-      planMessage = "Pick a destination, or click the map and press “Send rover here”.";
+      planMessage = t("rover.hints.firstMove");
     } else if (!rover.pos) {
       planMessage = "Pick where the rover starts.";
     } else {
@@ -729,6 +753,49 @@
   }
 
   // ===========================================================================
+  // RIDGEBACK TEXT (content.js)
+  // ===========================================================================
+  //
+  // All rover wording comes from content.js (owned by the content teammate).
+  // It is an ES module, so it is loaded with a dynamic import; until it
+  // arrives (or if the page is opened from file://, where imports are
+  // blocked) the text is simply empty.
+
+  var TEXT = null;
+
+  function t(path) {
+    var node = TEXT;
+    var parts = path.split(".");
+    for (var i = 0; i < parts.length && node; i++) node = node[parts[i]];
+    return typeof node === "string" ? node : "";
+  }
+
+  function applyContent() {
+    document.getElementById("rb-name").textContent = t("rover.name");
+    document.getElementById("rb-tag").textContent = t("rover.tagline");
+    document.getElementById("rb-reset").textContent = t("rover.buttons.reset");
+    document.getElementById("rb-recharge").textContent = t("rover.buttons.recharge");
+    sendBtn.textContent = t("rover.buttons.go");
+    var battery = TEXT && TEXT.rover.stats.battery;
+    if (battery) {
+      document.getElementById("rb-battery-label").textContent = battery.label;
+      document.getElementById("rb-battery-label").title = battery.tooltip;
+    }
+    var limits = TEXT && TEXT.rover.limits;
+    var list = document.getElementById("rb-limits");
+    list.textContent = "";
+    if (limits) {
+      document.getElementById("rb-limits-title").textContent = limits.title;
+      ["steepSlope", "deepSand", "extremeCold", "dustStorm"].forEach(function (key) {
+        list.appendChild(el("li", "", limits[key]));
+      });
+    }
+    if (!routes) renderRoutes();
+    syncControls();
+    renderTelemetry();
+  }
+
+  // ===========================================================================
   // DRIVING
   // ===========================================================================
 
@@ -737,7 +804,6 @@
   var modeManualBtn = document.getElementById("mode-manual");
   var playBtn = document.getElementById("rover-play");
   var restartBtn = document.getElementById("rover-restart");
-  var followBtn = document.getElementById("rover-follow");
   var speedSelect = document.getElementById("rover-speed");
   var progressInput = document.getElementById("rover-progress");
   var telemetry = document.getElementById("rover-telemetry");
@@ -746,69 +812,129 @@
   var riskLevelEl = document.getElementById("risk-level");
   var riskFill = document.getElementById("risk-fill");
   var riskCause = document.getElementById("risk-cause");
+  var rbPct = document.getElementById("rb-pct");
+  var rbFill = document.getElementById("rb-fill");
+  var rbStatus = document.getElementById("rb-status");
+  var rbLimit = document.getElementById("rb-limit");
+  var rbHint = document.getElementById("rb-hint");
 
   var input = { up: false, down: false, left: false, right: false };
   var movedSincePlan = 0;
   var sincePlan = 0;
+  var everMoved = false;
 
   function speedMul() { return Number(speedSelect.value) || 1; }
 
+  // Is it physically possible to move from the rover's spot onto `next`?
+  // Returns the limit that stops it, or null. Ground the rover is already on
+  // never blocks it, so it can always drive back out.
+  function limitAhead(next) {
+    var here = rover.sample;
+    if (next.slope > MAX_SLOPE && next.slope > here.slope) return "steepSlope";
+    if (avoidBox.checked && !zoneOf(here) && zoneOf(next)) return "zone";
+    return null;
+  }
+
   function stepAuto(dt) {
-    if (!rover.path || !rover.playing) {
+    if (!rover.path || !rover.playing || rover.dead) {
       rover.speed = 0;
       return;
     }
     rover.speed = DRIVE_SPEED * speedMul() * speedFactor(rover.sample);
-    rover.s += rover.speed * dt;
+    var s = Math.min(rover.total, rover.s + rover.speed * dt);
+    var next = pointOn(rover.path, rover.cum, s);
+    var block = limitAhead(data.sampleTerrainAt(next.nx, next.ny));
+    if (block) {
+      // The planner keeps routes off such ground, but hazard limits can change mid-drive.
+      rover.blocked = block;
+      rover.playing = false;
+      rover.speed = 0;
+      syncControls();
+      return;
+    }
+    rover.s = s;
     if (rover.s >= rover.total) {
-      rover.s = rover.total;
       rover.playing = false;
       rover.arrived = true;
       rover.speed = 0;
       syncControls();
     }
-    rover.pos = pointOn(rover.path, rover.cum, rover.s);
-    var a = pointOn(rover.path, rover.cum, rover.s - 0.006);
-    var b = pointOn(rover.path, rover.cum, rover.s + 0.006);
+    rover.pos = next;
+    var a = pointOn(rover.path, rover.cum, rover.s - 0.003);
+    var b = pointOn(rover.path, rover.cum, rover.s + 0.003);
     if (a.nx !== b.nx || a.ny !== b.ny) {
       rover.heading = Math.atan2((b.ny - a.ny) * ASPECT, b.nx - a.nx);
     }
   }
 
   function stepManual(dt) {
-    var throttle = (input.up ? 1 : 0) - (input.down ? 1 : 0);
-    var steer = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    var throttle = rover.dead ? 0 : (input.up ? 1 : 0) - (input.down ? 1 : 0);
+    var steer = rover.dead ? 0 : (input.right ? 1 : 0) - (input.left ? 1 : 0);
     var mul = speedMul();
-    var target = throttle * DRIVE_SPEED * mul * speedFactor(rover.sample) * (throttle < 0 ? REVERSE_FACTOR : 1);
-    rover.speed += (target - rover.speed) * (1 - Math.exp(-dt * ACCEL));
-    if (!throttle && Math.abs(rover.speed) < DRIVE_SPEED * 0.02) rover.speed = 0;
-    rover.heading += steer * TURN_RATE * Math.min(2, mul) * dt;
-    if (throttle || steer) rover.blocked = null;
+    rover.stuck = rover.sample.dustRisk > DEEP_SAND;
+    var factor = speedFactor(rover.sample) * (throttle < 0 ? (rover.stuck ? STUCK_REVERSE : REVERSE_FACTOR) : 1);
+    if (rover.stuck && throttle > 0) factor = 0; // wheels just spin
+    var target = throttle * DRIVE_SPEED * mul * factor;
+    // Braking (letting go) is quicker than accelerating.
+    rover.speed += (target - rover.speed) * (1 - Math.exp(-dt * (throttle ? ACCEL : ACCEL * 2.5)));
+    if (!throttle && Math.abs(rover.speed) < DRIVE_SPEED * 0.05) rover.speed = 0;
+    if (rover.stuck && throttle > 0) rover.speed = 0;
+    // Like Ridgeback: steering is gentler at low speed and flips in reverse.
+    var turnScale = 0.35 + 0.65 * Math.min(1, Math.abs(rover.speed) / (DRIVE_SPEED * 0.5));
+    rover.heading += steer * TURN_RATE * Math.min(2, mul) * turnScale * dt * (rover.speed < 0 ? -1 : 1);
+    if (throttle || steer) rover.blocked = rover.stuck && throttle > 0 ? "deepSand" : null;
+    if (throttle) everMoved = true;
     if (!rover.speed) return;
 
     var nx = rover.pos.nx + Math.cos(rover.heading) * rover.speed * dt;
     var ny = rover.pos.ny + Math.sin(rover.heading) * rover.speed * dt / ASPECT;
     if (nx < 0 || nx > 1 || ny < 0 || ny > 1) {
-      rover.blocked = "edge of the map";
+      rover.blocked = "edge";
       rover.speed = 0;
       return;
     }
-    // With "avoid hazard zones" on, the rover refuses to enter a highlighted
-    // zone. If it is already inside one it may keep moving, so it can get out.
-    if (avoidBox.checked && !zoneOf(rover.sample)) {
-      var zone = zoneOf(data.sampleTerrainAt(nx, ny));
-      if (zone) {
-        rover.blocked = HAZARD_WORDS[zone] + " zone ahead";
-        rover.speed = 0;
-        return;
-      }
+    var block = limitAhead(data.sampleTerrainAt(nx, ny));
+    if (block) {
+      rover.blocked = block;
+      rover.speed = 0;
+      return;
     }
     movedSincePlan += mapDist(rover.pos, { nx: nx, ny: ny });
     rover.pos = { nx: nx, ny: ny };
   }
 
+  // Battery: driving drains it (more uphill and in the cold), standing still
+  // in sunlight recharges it (less through dusty air).
+  function stepBattery(dt, prevElevation) {
+    var s = rover.sample;
+    var mul = speedMul();
+    var rate;
+    var moving = Math.abs(rover.speed) > 0;
+    if (moving) {
+      var dist = Math.abs(rover.speed) * dt;
+      var uphill = dist > 0 && s.elevation > prevElevation ? s.slope : 0;
+      var cold = 1 + Math.max(0, COLD_REF - s.temperature) * COLD_DRAIN;
+      rate = -DRAIN_RATE * (Math.abs(rover.speed) / DRIVE_SPEED) * (1 + CLIMB_DRAIN * uphill) * cold;
+    } else if (rover.blocked === "deepSand" && input.up) {
+      rate = -SPIN_DRAIN * mul;
+    } else if (!rover.dead && rover.battery < 100) {
+      rate = SOLAR_RATE * (1 - DUST_SHADE * s.dustRisk) * mul;
+    } else {
+      rate = 0;
+    }
+    rover.drain = rate;
+    rover.battery = Math.max(0, Math.min(100, rover.battery + rate * dt));
+    if (rover.battery <= 0 && !rover.dead) {
+      rover.dead = true;
+      rover.playing = false;
+      rover.speed = 0;
+      syncControls();
+    }
+  }
+
   function step(dt) {
     if (!rover.pos) return;
+    var prevElevation = rover.sample ? rover.sample.elevation : 0;
     if (rover.mode === "manual") {
       stepManual(dt);
       // Keep the suggested routes current as the rover moves.
@@ -820,8 +946,10 @@
       }
     } else {
       stepAuto(dt);
+      if (rover.playing) everMoved = true;
     }
     refreshSample();
+    stepBattery(dt, prevElevation);
   }
 
   function setMode(mode) {
@@ -835,7 +963,7 @@
       // Back to automatic: plan from wherever the rover was driven to, and go.
       input.up = input.down = input.left = input.right = false;
       plan();
-      rover.playing = !!routes && !rover.arrived;
+      rover.playing = !!routes && !rover.arrived && !rover.dead;
     }
     syncControls();
     renderTelemetry();
@@ -849,14 +977,13 @@
     panel.classList.toggle("is-manual", !auto);
     modeAutoBtn.setAttribute("aria-pressed", String(auto));
     modeManualBtn.setAttribute("aria-pressed", String(!auto));
-    playBtn.disabled = !has;
+    playBtn.disabled = !has || rover.dead;
     restartBtn.disabled = !has;
     progressInput.disabled = !has || !auto;
-    playBtn.textContent = rover.playing ? "Pause" : rover.arrived ? "Drive again" : "Drive";
+    playBtn.textContent = rover.playing ? t("rover.buttons.stop") : t("rover.buttons.go");
     playBtn.setAttribute("aria-pressed", String(rover.playing));
-    followBtn.setAttribute("aria-pressed", String(rover.follow));
-    followBtn.disabled = !scene3d || map.viewMode() !== "3d";
     progressInput.value = has && rover.total ? String(Math.round(rover.s / rover.total * 1000)) : "0";
+    document.getElementById("rb-recharge").disabled = rover.dead || rover.battery >= 99.5;
   }
 
   function compass(heading) {
@@ -865,20 +992,52 @@
     return names[Math.round(deg / 45) % 8] + " " + Math.round(deg) + "°";
   }
 
-  function statusText() {
+  // content.js status key for the rover's situation, most serious first.
+  function statusKey() {
+    if (rover.dead) return "failed";
+    if (rover.blocked === "deepSand" || rover.blocked === "steepSlope" || (rover.stuck && input.up)) return "stuck";
+    if (rover.battery < CRITICAL_BATTERY) return "critical";
+    if (rover.battery < LOW_BATTERY) return "lowBattery";
+    if (rover.arrived || (dest && mapDist(rover.pos, dest) < ARRIVE_RADIUS)) return "arrived";
+    if (rover.speed) return "moving";
+    if (rover.battery < 99.5) return "charging";
+    return "ready";
+  }
+
+  // The limit or condition behind the current situation, from content.js.
+  function limitKey() {
     var s = rover.sample;
-    if (rover.mode === "manual") {
-      if (rover.blocked) return "Blocked · " + rover.blocked;
-      if (dest && mapDist(rover.pos, dest) < ARRIVE_RADIUS) return "At destination";
-      if (!rover.speed) return "Manual · stopped";
-      return rover.speed < 0 ? "Manual · reversing" : "Manual · driving";
+    if (rover.blocked === "steepSlope") return "steepSlope";
+    if (rover.blocked === "deepSand" || rover.stuck) return "deepSand";
+    if (rover.drain < 0 && s.temperature < COLD_REF) return "extremeCold";
+    if (rover.drain > 0 && s.dustRisk > 0.6) return "dustStorm";
+    return null;
+  }
+
+  function hintKey() {
+    var s = rover.sample;
+    if (!everMoved) return "firstMove";
+    if (rover.battery < LOW_BATTERY) return "lowPower";
+    if (s.slope > MAX_SLOPE * 0.75 || rover.blocked === "steepSlope") return "slope";
+    if (s.dustRisk > 0.6) return "dust";
+    return null;
+  }
+
+  function renderHud() {
+    var b = rover.battery;
+    rbPct.textContent = Math.round(b) + "%";
+    rbFill.style.width = b + "%";
+    rbFill.className = b < CRITICAL_BATTERY ? "bad" : b < LOW_BATTERY ? "warn" : "ok";
+    if (!rover.sample) return;
+    rbStatus.textContent = t("rover.status." + statusKey());
+    if (rover.blocked === "zone") {
+      rbLimit.textContent = "";
+      rbStatus.textContent = t("rover.status.stuck");
     }
-    if (rover.arrived) return "Arrived";
-    if (!rover.path) return "No route";
-    if (!rover.playing) return rover.s > 0 ? "Paused" : "Ready";
-    if (s.slope > threshold("slope")) return "Crawling · steep ground";
-    if (s.dustRisk > threshold("dustRisk")) return "Slowed · loose dust";
-    return "Driving route";
+    var lk = limitKey();
+    rbLimit.textContent = lk ? t("rover.limits." + lk) : "";
+    var hk = hintKey();
+    rbHint.textContent = hk ? t("rover.hints." + hk) : "";
   }
 
   function renderRisk() {
@@ -899,19 +1058,28 @@
     riskCause.style.color = zone ? map.hazardColor(zone) : "";
   }
 
+  var BLOCK_WORDS = {
+    steepSlope: "too steep ahead", deepSand: "dug into deep sand",
+    zone: "hazard zone ahead", edge: "edge of the map"
+  };
+
   function renderTelemetry() {
     telemetry.textContent = "";
+    renderHud();
     renderRisk();
     if (!rover.pos || !rover.sample) return;
     var s = rover.sample;
     var list = document.createElement("dl");
-    addRow(list, "Status", statusText());
+    addRow(list, "Mode", (rover.mode === "auto" ? "Auto" : "Manual") +
+      (rover.blocked ? " · " + BLOCK_WORDS[rover.blocked] : ""));
+    addRow(list, "Battery", Math.round(rover.battery) + "% · " +
+      (rover.drain > 0.01 ? "+" : "") + rover.drain.toFixed(1) + "%/s");
     addRow(list, "Heading", compass(rover.heading));
     addRow(list, "Speed", pct(Math.abs(rover.speed) / (DRIVE_SPEED * speedMul())) + " of top speed");
     if (dest) addRow(list, "To destination", mapDist(rover.pos, dest).toFixed(2) + " × map width");
     if (rover.mode === "auto" && rover.path) addRow(list, "Route progress", pct(rover.s / rover.total));
     addRow(list, "Elevation", Math.round(s.elevation) + " m");
-    map.addRow(list, "Slope", pct(s.slope), "slope", map.isOverHazardLimit("slope", s.slope));
+    map.addRow(list, "Slope", pct(s.slope) + " (limit " + pct(MAX_SLOPE) + ")", "slope", map.isOverHazardLimit("slope", s.slope));
     map.addRow(list, "Dust risk", pct(s.dustRisk), "dustRisk", map.isOverHazardLimit("dustRisk", s.dustRisk));
     addRow(list, "Temperature", s.temperature.toFixed(1) + " °C");
     telemetry.appendChild(list);
@@ -921,12 +1089,13 @@
   }
 
   playBtn.addEventListener("click", function () {
-    if (!rover.path) return;
+    if (!rover.path || rover.dead) return;
     if (rover.arrived) {
       restart();
       return;
     }
     rover.playing = !rover.playing;
+    rover.blocked = null;
     syncControls();
     renderTelemetry();
   });
@@ -937,15 +1106,36 @@
     teleport(rover.path[0]);
     rover.s = 0;
     rover.arrived = false;
-    rover.playing = true;
+    rover.playing = !rover.dead;
     syncControls();
     renderTelemetry();
   }
   restartBtn.addEventListener("click", restart);
 
-  followBtn.addEventListener("click", function () {
-    rover.follow = !rover.follow;
+  // "Start over": full battery, back at the start site.
+  document.getElementById("rb-reset").addEventListener("click", function () {
+    rover.battery = 100;
+    rover.dead = false;
+    rover.stuck = false;
+    everMoved = false;
+    var site = sites[fromSelect.value];
+    if (site) teleport(site);
+    rover.heading = 0;
+    origin = null;
+    setMode("auto");
+    plan();
+    rover.playing = false;
     syncControls();
+    renderTelemetry();
+  });
+
+  // "Wait and recharge": stop where you are and let the panels work.
+  document.getElementById("rb-recharge").addEventListener("click", function () {
+    rover.playing = false;
+    rover.speed = 0;
+    input.up = input.down = input.left = input.right = false;
+    syncControls();
+    renderTelemetry();
   });
 
   progressInput.addEventListener("input", function () {
@@ -1010,7 +1200,7 @@
     teleport(site);
     origin = null;
     plan();
-    rover.playing = !!routes && rover.mode === "auto" && !reduceMotion;
+    rover.playing = false;
     syncControls();
     renderTelemetry();
   });
@@ -1019,10 +1209,11 @@
     var site = sites[toSelect.value];
     var custom = toSelect.querySelector('option[value="custom"]');
     if (custom && toSelect.value !== "custom") custom.remove();
-    setDestination(site ? { nx: site.nx, ny: site.ny, name: site.name } : null, !reduceMotion);
+    setDestination(site ? { nx: site.nx, ny: site.ny, name: site.name } : null, false);
   });
 
-  // "Send rover here": the clicked map point becomes the destination.
+  // "Drive here": the clicked point (on the ground or the minimap) becomes
+  // the destination, and Ridgeback sets off on the recommended route.
   sendBtn.addEventListener("click", function () {
     var p = map.getSelected();
     if (!p) return;
@@ -1031,10 +1222,11 @@
       if (site.nx === p.nx && site.ny === p.ny) siteIdx = i;
     });
     var custom = toSelect.querySelector('option[value="custom"]');
+    setMode("auto");
     if (siteIdx >= 0) {
       if (custom) custom.remove();
       toSelect.value = String(siteIdx);
-      setDestination({ nx: p.nx, ny: p.ny, name: sites[siteIdx].name }, true);
+      setDestination({ nx: p.nx, ny: p.ny, name: sites[siteIdx].name }, !rover.dead);
       return;
     }
     if (!custom) {
@@ -1044,13 +1236,13 @@
     }
     custom.textContent = "Clicked point (" + p.nx.toFixed(2) + ", " + p.ny.toFixed(2) + ")";
     toSelect.value = "custom";
-    setDestination({ nx: p.nx, ny: p.ny, name: custom.textContent }, true);
+    setDestination({ nx: p.nx, ny: p.ny, name: custom.textContent }, !rover.dead);
   });
 
   function replanKeepDriving() {
     var wasPlaying = rover.playing;
     plan();
-    rover.playing = wasPlaying && !!routes && rover.mode === "auto" && !rover.arrived;
+    rover.playing = wasPlaying && !!routes && rover.mode === "auto" && !rover.arrived && !rover.dead;
     syncControls();
   }
 
@@ -1063,231 +1255,171 @@
     renderTelemetry();
   });
 
-  map.onViewChange(function () {
-    if (map.viewMode() !== "3d") rover.follow = false;
-    syncControls();
-    updateMarker2d();
-  });
-
-  // ---- 2D marker ------------------------------------------------------------
+  // ---- minimap marker ---------------------------------------------------------
 
   function updateMarker2d() {
-    var show = !!rover.pos && map.viewMode() !== "3d";
-    marker2d.hidden = !show;
-    if (!show) return;
+    marker2d.hidden = !rover.pos;
+    if (!rover.pos) return;
     marker2d.style.left = (rover.pos.nx * 100) + "%";
     marker2d.style.top = (rover.pos.ny * 100) + "%";
     marker2d.style.transform = "translate(-50%, -50%) rotate(" + rover.heading + "rad)";
   }
 
-  // ---- main loop (runs in both views) ---------------------------------------
+  // ---- main loop ----------------------------------------------------------------
 
   var last = 0;
   var sinceTelemetry = 0;
   function loop(now) {
     var dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
     last = now;
-    var before = rover.speed;
     step(dt);
     sinceTelemetry += dt;
-    var active = rover.playing || rover.speed || before || input.left || input.right || rover.blocked;
-    if (active && sinceTelemetry >= TELEMETRY_EVERY) {
+    if (sinceTelemetry >= TELEMETRY_EVERY) {
       sinceTelemetry = 0;
       renderTelemetry();
+      syncControls();
     }
     updateMarker2d();
     requestAnimationFrame(loop);
   }
 
   // ===========================================================================
-  // ROVER IN 3D
+  // RIDGEBACK IN 3D
   // ===========================================================================
 
-  // Rover model dimensions, in world units (the map is ~4 units wide).
-  // The rover is drawn far larger than true scale so it reads on the map.
+  // Ridgeback's dimensions in world units (from ridgeback-rover-3d.html).
   var R = {
-    wheelRadius: 0.017,
-    wheelWidth: 0.013,
-    track: 0.088,      // distance between left and right wheels
-    wheelbase: 0.092,  // front to back wheel
-    rideHeight: 0.03
+    wheelRadius: 0.45,
+    track: 2.3,        // distance between left and right wheels
+    wheelbase: 2.4     // front to back wheel
   };
 
   function build3d(api) {
     var T = api.THREE;
     var scene = api.scene;
 
-    function std(color, opts) {
-      opts = opts || {};
-      return new T.MeshStandardMaterial({
-        color: color,
-        roughness: opts.roughness !== undefined ? opts.roughness : 0.6,
-        metalness: opts.metalness !== undefined ? opts.metalness : 0.1,
-        emissive: opts.emissive || 0x000000,
-        emissiveIntensity: opts.emissiveIntensity || 1
-      });
-    }
+    // ---- the Ridgeback model (geometry from ridgeback-rover-3d.html) --------
 
-    var MAT = {
-      body: std(0xece6da, { roughness: 0.45, metalness: 0.15 }),
-      dark: std(0x2a2d33, { roughness: 0.5, metalness: 0.4 }),
-      deck: std(0xc9c2b4, { roughness: 0.55, metalness: 0.2 }),
-      metal: std(0x9aa0a8, { roughness: 0.35, metalness: 0.85 }),
-      gold: std(0xd4a43a, { roughness: 0.3, metalness: 0.9 }),
-      tire: std(0x3a3532, { roughness: 0.9, metalness: 0.05 }),
-      lens: std(0x111111, { roughness: 0.1, metalness: 0.2, emissive: 0x6fd3ff, emissiveIntensity: 0.9 }),
-      lamp: std(0xffffff, { emissive: 0xfff2c8, emissiveIntensity: 1.6 })
-    };
-
-    function box(w, h, d, mat) {
-      var m = new T.Mesh(new T.BoxGeometry(w, h, d), mat);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      return m;
-    }
-    function cyl(rTop, rBot, h, mat, seg) {
-      var m = new T.Mesh(new T.CylinderGeometry(rTop, rBot, h, seg || 16), mat);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      return m;
-    }
-
-    // Local axes: +X right, +Y up, +Z forward.
     var rover3d = new T.Group();
-    var body = new T.Group();
-    body.position.y = R.rideHeight;
-    rover3d.add(body);
-
-    // Chassis: white warm-box with a gold-foil belly and a light deck.
-    body.add(box(0.062, 0.022, 0.088, MAT.body));
-    var belly = box(0.056, 0.006, 0.08, MAT.gold);
-    belly.position.y = -0.014;
-    body.add(belly);
-    var deck = box(0.068, 0.004, 0.094, MAT.deck);
-    deck.position.y = 0.013;
-    body.add(deck);
-    var inst1 = box(0.02, 0.01, 0.024, MAT.body);
-    inst1.position.set(0.016, 0.02, -0.01);
-    body.add(inst1);
-    var inst2 = box(0.016, 0.008, 0.018, MAT.gold);
-    inst2.position.set(-0.012, 0.019, 0.018);
-    body.add(inst2);
-
-    // RTG power unit, angled off the back, with cooling fins.
-    var rtg = new T.Group();
-    rtg.position.set(0, 0.01, -0.056);
-    rtg.rotation.x = -0.55;
-    var rtgCore = cyl(0.009, 0.009, 0.034, MAT.dark, 12);
-    rtgCore.rotation.x = Math.PI / 2;
-    rtg.add(rtgCore);
-    for (var f = 0; f < 4; f++) {
-      var fin = box(0.03, 0.002, 0.026, MAT.metal);
-      fin.rotation.z = f * Math.PI / 4;
-      rtg.add(fin);
+    function mat(c) {
+      return new T.MeshStandardMaterial({ color: c, flatShading: true, roughness: 0.7, metalness: 0.1 });
     }
-    body.add(rtg);
+    function add(geo, c, px, py, pz, parent) {
+      var m = new T.Mesh(geo, mat(c));
+      m.position.set(px, py, pz);
+      m.castShadow = true;
+      (parent || rover3d).add(m);
+      return m;
+    }
+    function B(w, h, d) { return new T.BoxGeometry(w, h, d); }
 
-    // Mast with a camera head that scans side to side.
-    var mast = cyl(0.0028, 0.0034, 0.07, MAT.metal, 10);
-    mast.position.set(0.022, 0.05, 0.034);
-    body.add(mast);
+    add(B(1.6, 0.6, 2.6), 0xe8e4dc, 0, 1.25, 0);
+    add(B(1.1, 0.2, 1.4), 0xb9b3a6, 0, 1.62, 0.2);
+    var panelMesh = add(B(2.7, 0.08, 1.9), 0x1f3a5f, 0, 1.95, -0.15);
+    panelMesh.rotation.x = -0.1;
+    add(B(2.7, 0.1, 0.06), 0xe8e4dc, 0, 1.97, -1.1).rotation.x = -0.1;
+    add(B(0.06, 0.1, 1.9), 0xe8e4dc, -1.35, 1.95, -0.15);
+    add(B(0.06, 0.1, 1.9), 0xe8e4dc, 1.35, 1.95, -0.15);
+    add(new T.CylinderGeometry(0.05, 0.05, 0.9, 8), 0x4a4a4a, -0.55, 2.1, 0.95);
+    // Camera head on a group so it can scan.
     var head = new T.Group();
-    head.position.set(0.022, 0.088, 0.034);
-    head.add(box(0.026, 0.011, 0.012, MAT.body));
-    [-0.007, 0.007].forEach(function (x) {
-      var eye = cyl(0.003, 0.003, 0.006, MAT.lens, 12);
-      eye.rotation.x = Math.PI / 2;
-      eye.position.set(x, 0, 0.008);
-      head.add(eye);
+    head.position.set(-0.55, 2.62, 0.95);
+    rover3d.add(head);
+    add(B(0.5, 0.26, 0.3), 0xe8e4dc, 0, 0, 0, head);
+    var eye = new T.Mesh(new T.SphereGeometry(0.08, 8, 6),
+      new T.MeshStandardMaterial({ color: 0x14202b, emissive: 0x6fd3ff, emissiveIntensity: 0.6 }));
+    eye.position.set(0, 0, 0.17);
+    head.add(eye);
+    add(new T.CylinderGeometry(0.04, 0.04, 0.7, 6), 0x4a4a4a, 0.6, 2.2, -0.85);
+    var dish = add(new T.CylinderGeometry(0.42, 0.05, 0.12, 16), 0xe8e4dc, 0.6, 2.6, -0.85);
+    dish.rotation.x = -0.5;
+
+    // Headlights, which light the ground ahead.
+    [-0.45, 0.45].forEach(function (x) {
+      var lamp = new T.Mesh(B(0.22, 0.1, 0.04),
+        new T.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2c8, emissiveIntensity: 1.4 }));
+      lamp.position.set(x, 1.3, 1.31);
+      rover3d.add(lamp);
     });
-    body.add(head);
+    var headlight = new T.SpotLight(0xfff2d8, 0.8, 22, 0.6, 0.6, 1.2);
+    headlight.position.set(0, 1.4, 1.3);
+    headlight.target.position.set(0, -1, 9);
+    rover3d.add(headlight);
+    rover3d.add(headlight.target);
 
-    // High-gain antenna dish.
-    var dishPost = cyl(0.002, 0.002, 0.016, MAT.metal, 8);
-    dishPost.position.set(-0.02, 0.022, -0.02);
-    body.add(dishPost);
-    var dish = new T.Group();
-    dish.position.set(-0.02, 0.031, -0.02);
-    dish.add(cyl(0.013, 0.006, 0.004, MAT.metal, 20));
-    dish.rotation.x = 0.7;
-    body.add(dish);
-
-    // Robotic arm folded across the front, with a turret.
-    var arm1 = box(0.044, 0.004, 0.004, MAT.metal);
-    arm1.position.set(0, -0.002, 0.05);
-    body.add(arm1);
-    var turret = cyl(0.007, 0.007, 0.01, MAT.dark, 12);
-    turret.position.set(-0.022, -0.002, 0.05);
-    body.add(turret);
-
-    // Headlights.
-    [-0.02, 0.02].forEach(function (x) {
-      var lamp = box(0.008, 0.004, 0.002, MAT.lamp);
-      lamp.position.set(x, 0.004, 0.045);
-      body.add(lamp);
-    });
-    var headlight = new T.SpotLight(0xfff2d8, 0.9, 0.7, 0.55, 0.6, 1.5);
-    headlight.position.set(0, 0.02, 0.05);
-    headlight.target.position.set(0, -0.08, 0.35);
-    body.add(headlight);
-    body.add(headlight.target);
-
-    // Wheels on a rocker-bogie: 3 per side, each in a pivot that spins.
     var wheels = [];
-    var zs = [R.wheelbase / 2, 0, -R.wheelbase / 2];
-    [-1, 1].forEach(function (side) {
-      var x = side * R.track / 2;
-      zs.forEach(function (z) {
-        var pivot = new T.Group();
-        pivot.position.set(x, R.wheelRadius, z);
-        var tire = cyl(R.wheelRadius, R.wheelRadius, R.wheelWidth, MAT.tire, 20);
-        tire.rotation.z = Math.PI / 2;
-        pivot.add(tire);
-        // Grousers (treads) so the spin is visible.
-        for (var g = 0; g < 6; g++) {
-          var grouser = box(R.wheelWidth * 1.04, 0.0025, 0.004, MAT.dark);
-          var a = g / 6 * Math.PI * 2;
-          grouser.position.set(0, Math.cos(a) * R.wheelRadius, Math.sin(a) * R.wheelRadius);
-          grouser.rotation.x = -a;
-          pivot.add(grouser);
-        }
-        var hub = cyl(0.006, 0.006, R.wheelWidth * 1.1, MAT.metal, 12);
-        hub.rotation.z = Math.PI / 2;
-        pivot.add(hub);
-        rover3d.add(pivot);
-        wheels.push(pivot);
-      });
-      var rocker = box(0.004, 0.004, R.wheelbase * 0.62, MAT.metal);
-      rocker.position.set(x * 0.92, R.rideHeight * 0.85, R.wheelbase * 0.18);
-      rocker.rotation.x = 0.35;
-      rover3d.add(rocker);
-      var bogie = box(0.004, 0.004, R.wheelbase * 0.55, MAT.metal);
-      bogie.position.set(x * 0.92, R.wheelRadius * 1.5, -R.wheelbase * 0.25);
-      bogie.rotation.x = -0.25;
-      rover3d.add(bogie);
-    });
-
+    var wg = new T.CylinderGeometry(0.45, 0.45, 0.36, 14);
+    var hg = new T.CylinderGeometry(0.18, 0.18, 0.4, 10);
+    var sg = B(0.42, 0.07, 0.7);
+    wg.rotateZ(Math.PI / 2);
+    hg.rotateZ(Math.PI / 2);
+    for (var sx = -1; sx <= 1; sx += 2) {
+      add(B(0.08, 0.08, 2.8), 0x4a4a4a, sx * 0.95, 0.98, 0);
+      for (var wz = 1.2; wz >= -1.2; wz -= 1.2) {
+        add(B(0.08, 0.55, 0.08), 0x4a4a4a, sx * 0.95, 0.72, wz);
+        var pv = new T.Group();
+        pv.position.set(sx * 1.15, 0.45, wz);
+        rover3d.add(pv);
+        add(wg, 0x2a2a2a, 0, 0, 0, pv);
+        add(hg, 0x9a9a9a, 0, 0, 0, pv);
+        add(sg, 0x6a6a6a, 0, 0, 0, pv);
+        wheels.push(pv);
+      }
+    }
     rover3d.visible = false;
     scene.add(rover3d);
+
+    // ---- scenery rocks ---------------------------------------------------------
+    //
+    // Purely visual: boulders gather on steep ground (where Ridgeback can't go
+    // anyway) and small pebbles are scattered elsewhere. Placement follows the
+    // terrain's slope from MarsData, using a fixed seed so it never changes.
+
+    var seed = 7;
+    function rand() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+    var rockGeo = new T.DodecahedronGeometry(1, 0);
+    var rockMat = new T.MeshStandardMaterial({ color: 0x8a4528, flatShading: true, roughness: 1 });
+    var ROCKS = 900;
+    var rocks = new T.InstancedMesh(rockGeo, rockMat, ROCKS);
+    rocks.castShadow = true;
+    rocks.receiveShadow = true;
+    var m4 = new T.Matrix4(), q = new T.Quaternion(), e3 = new T.Euler(), v3 = new T.Vector3(), s3v = new T.Vector3();
+    var placed = 0;
+    for (var tries = 0; tries < ROCKS * 8 && placed < ROCKS; tries++) {
+      var rx = rand(), ry = rand();
+      var slope = data.sampleTerrainAt(rx, ry).slope;
+      var boulder = slope > 0.4;
+      if (!boulder && rand() > 0.25) continue;
+      if (boulder && rand() > slope) continue;
+      var r = boulder ? 0.5 + rand() * 1.6 : 0.12 + rand() * 0.25;
+      var p = api.surfacePoint(rx, ry, r * 0.25);
+      e3.set(rand() * 3, rand() * 3, rand() * 3);
+      q.setFromEuler(e3);
+      s3v.set(r, r * 0.6, r * (0.8 + rand() * 0.4));
+      m4.compose(v3.copy(p), q, s3v);
+      rocks.setMatrixAt(placed++, m4);
+    }
+    rocks.count = placed;
+    scene.add(rocks);
 
     // ---- route ribbons and destination beacon -------------------------------
 
     var tubes = [];
     var beacon = new T.Group();
     var ring = new T.Mesh(
-      new T.RingGeometry(0.03, 0.04, 40),
+      new T.RingGeometry(2.6, 3.4, 48),
       new T.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.9, side: T.DoubleSide, depthWrite: false })
     );
     ring.rotation.x = -Math.PI / 2;
     beacon.add(ring);
     var beam = new T.Mesh(
-      new T.CylinderGeometry(0.012, 0.03, 0.5, 24, 1, true),
+      new T.CylinderGeometry(0.8, 2.4, 60, 24, 1, true),
       new T.MeshBasicMaterial({
-        color: 0xffd166, transparent: true, opacity: 0.18,
-        side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending
+        color: 0xffd166, transparent: true, opacity: 0.2,
+        side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending, fog: false
       })
     );
-    beam.position.y = 0.25;
+    beam.position.y = 30;
     beacon.add(beam);
     beacon.visible = false;
     scene.add(beacon);
@@ -1302,22 +1434,22 @@
       (list || []).forEach(function (r) {
         if (r.path.length < 2) return;
         var isSel = r.profile.key === selKey;
-        var pts = r.path.map(function (p) { return api.surfacePoint(p.nx, p.ny, isSel ? 0.008 : 0.005); });
+        var pts = r.path.map(function (p) { return api.surfacePoint(p.nx, p.ny, isSel ? 0.2 : 0.15); });
         var tube = new T.Mesh(
-          new T.TubeGeometry(new T.CatmullRomCurve3(pts), Math.min(600, pts.length * 2), isSel ? 0.004 : 0.002, 6, false),
-          new T.MeshBasicMaterial({ color: r.profile.color, transparent: true, opacity: isSel ? 0.95 : 0.5 })
+          new T.TubeGeometry(new T.CatmullRomCurve3(pts), Math.min(2000, pts.length * 3), isSel ? 0.14 : 0.07, 6, false),
+          new T.MeshBasicMaterial({ color: r.profile.color, transparent: true, opacity: isSel ? 0.75 : 0.4, depthWrite: false })
         );
         scene.add(tube);
         tubes.push(tube);
       });
       beacon.visible = !!destination;
-      if (destination) beacon.position.copy(api.surfacePoint(destination.nx, destination.ny, 0.004));
+      if (destination) beacon.position.copy(api.surfacePoint(destination.nx, destination.ny, 0.12));
     }
 
     // ---- wheel tracks -------------------------------------------------------
 
-    var TRAIL_MAX = 6000;
-    var trailMat = new T.LineBasicMaterial({ color: 0x2a170d, transparent: true, opacity: 0.75 });
+    var TRAIL_MAX = 8000;
+    var trailMat = new T.LineBasicMaterial({ color: 0x5a2a14, transparent: true, opacity: 0.8 });
     var trails = [-1, 1].map(function (side) {
       var geo = new T.BufferGeometry();
       geo.setAttribute("position", new T.BufferAttribute(new Float32Array(TRAIL_MAX * 3), 3));
@@ -1330,27 +1462,27 @@
     var lastTrail = null;
 
     function resetTrail() {
-      trails.forEach(function (t) { t.count = 0; t.geo.setDrawRange(0, 0); });
+      trails.forEach(function (tr) { tr.count = 0; tr.geo.setDrawRange(0, 0); });
       lastTrail = null;
       rover3d.userData.placed = false;
     }
 
     function addTrailPoint(center, right) {
-      if (lastTrail && lastTrail.distanceTo(center) < 0.006) return;
+      if (lastTrail && lastTrail.distanceTo(center) < 0.3) return;
       lastTrail = center.clone();
-      trails.forEach(function (t) {
-        if (t.count >= TRAIL_MAX) return;
-        var off = right.clone().multiplyScalar(t.side * R.track / 2);
+      trails.forEach(function (tr) {
+        if (tr.count >= TRAIL_MAX) return;
+        var off = right.clone().multiplyScalar(tr.side * R.track / 2);
         var m = api.toMap(center.x + off.x, center.z + off.z);
-        var p = api.surfacePoint(m.nx, m.ny, 0.0015);
-        t.geo.attributes.position.setXYZ(t.count, p.x, p.y, p.z);
-        t.count++;
-        t.geo.setDrawRange(0, t.count);
-        t.geo.attributes.position.needsUpdate = true;
+        var p = api.surfacePoint(m.nx, m.ny, 0.05);
+        tr.geo.attributes.position.setXYZ(tr.count, p.x, p.y, p.z);
+        tr.count++;
+        tr.geo.setDrawRange(0, tr.count);
+        tr.geo.attributes.position.needsUpdate = true;
       });
     }
 
-    // ---- dust kicked up by the wheels --------------------------------------
+    // ---- dust: puffs from the wheels and dust hanging in the air -------------
 
     var puffCanvas = document.createElement("canvas");
     puffCanvas.width = puffCanvas.height = 64;
@@ -1363,7 +1495,7 @@
     pc.fillRect(0, 0, 64, 64);
     var puffTex = new T.CanvasTexture(puffCanvas);
 
-    var PUFF_MAX = 140;
+    var PUFF_MAX = 160;
     var puffs = [];
     for (var i = 0; i < PUFF_MAX; i++) {
       var sprite = new T.Sprite(new T.SpriteMaterial({
@@ -1376,16 +1508,16 @@
     var puffCursor = 0;
     var puffDebt = 0;
 
-    function emitPuff(at, back, right) {
+    function emitPuff(at, back, right, strength) {
       var p = puffs[puffCursor];
       puffCursor = (puffCursor + 1) % PUFF_MAX;
       p.sprite.position.copy(at);
-      p.vel.copy(back).multiplyScalar(0.02 + Math.random() * 0.03)
-        .addScaledVector(right, (Math.random() - 0.5) * 0.04);
-      p.vel.y = 0.015 + Math.random() * 0.03;
+      p.vel.copy(back).multiplyScalar(0.6 + Math.random() * 1.0)
+        .addScaledVector(right, (Math.random() - 0.5) * 1.2);
+      p.vel.y = 0.5 + Math.random() * 1.0;
       p.age = 0;
-      p.life = 0.9 + Math.random() * 0.9;
-      p.size = 0.012 + Math.random() * 0.01;
+      p.life = 1.0 + Math.random() * 1.0;
+      p.size = (0.35 + Math.random() * 0.35) * strength;
       p.sprite.visible = true;
     }
 
@@ -1398,24 +1530,99 @@
           p.sprite.visible = false;
           continue;
         }
-        var t = p.age / p.life;
+        var k = p.age / p.life;
         p.vel.multiplyScalar(1 - dt * 1.5); // air drag
-        p.vel.y -= dt * 0.012;              // weak Mars gravity pulls it back down
+        p.vel.y -= dt * 0.35;               // weak Mars gravity pulls it back down
         p.sprite.position.addScaledVector(p.vel, dt);
-        var s = p.size * (1 + t * 3);
+        var s = p.size * (1 + k * 3);
         p.sprite.scale.set(s, s, s);
-        p.sprite.material.opacity = Math.sin(Math.PI * t) * 0.55;
+        p.sprite.material.opacity = Math.sin(Math.PI * k) * 0.6;
       }
+    }
+
+    // Airborne dust around the rover; thicker where the dust risk is higher.
+    var MOTES = 500, MOTE_R = 35;
+    var motePos = new Float32Array(MOTES * 3);
+    var moteGeo = new T.BufferGeometry();
+    moteGeo.setAttribute("position", new T.BufferAttribute(motePos, 3));
+    var moteMat = new T.PointsMaterial({
+      map: puffTex, color: 0xe2b58c, size: 0.35, transparent: true, opacity: 0, depthWrite: false
+    });
+    var motes = new T.Points(moteGeo, moteMat);
+    motes.frustumCulled = false;
+    scene.add(motes);
+    var motesInit = false;
+    var WIND = new T.Vector3(1.6, 0.05, 0.6);
+
+    function updateMotes(dt, center, dust) {
+      if (!motesInit) {
+        for (var i = 0; i < MOTES; i++) {
+          motePos[i * 3] = center.x + (Math.random() - 0.5) * 2 * MOTE_R;
+          motePos[i * 3 + 1] = center.y + Math.random() * 12;
+          motePos[i * 3 + 2] = center.z + (Math.random() - 0.5) * 2 * MOTE_R;
+        }
+        motesInit = true;
+      }
+      for (var j = 0; j < MOTES; j++) {
+        var ix = j * 3;
+        motePos[ix] += (WIND.x + Math.sin(j + motePos[ix + 1]) * 0.3) * dt;
+        motePos[ix + 1] += Math.sin(j * 1.7 + motePos[ix] * 0.1) * 0.15 * dt;
+        motePos[ix + 2] += WIND.z * dt;
+        // Keep the motes in a box around the rover, wrapping round.
+        var dx = motePos[ix] - center.x, dz = motePos[ix + 2] - center.z, dy = motePos[ix + 1] - center.y;
+        if (dx > MOTE_R) motePos[ix] -= 2 * MOTE_R; else if (dx < -MOTE_R) motePos[ix] += 2 * MOTE_R;
+        if (dz > MOTE_R) motePos[ix + 2] -= 2 * MOTE_R; else if (dz < -MOTE_R) motePos[ix + 2] += 2 * MOTE_R;
+        if (dy > 14 || dy < -1) motePos[ix + 1] = center.y + Math.random() * 12;
+      }
+      moteGeo.attributes.position.needsUpdate = true;
+      var target = Math.max(0, dust - 0.3) * 1.1;
+      moteMat.opacity += (target - moteMat.opacity) * Math.min(1, dt * 1.5);
+    }
+
+    // ---- chase camera (Ridgeback's) -------------------------------------------
+    //
+    // Follows behind the rover. Drag to look around, scroll to zoom; the view
+    // eases back behind the rover when you let go.
+
+    var cam = { off: 0, p: 0.38, d: 13, h: 0 };
+    var drag = null;
+    var CAM_MIN = 5, CAM_MAX = 140;
+    api.dom.addEventListener("pointerdown", function (e) {
+      drag = { x: e.clientX, y: e.clientY };
+      api.dom.setPointerCapture(e.pointerId);
+    });
+    api.dom.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      cam.off -= (e.clientX - drag.x) * 0.008;
+      cam.p = Math.min(1.45, Math.max(0.08, cam.p + (e.clientY - drag.y) * 0.006));
+      drag = { x: e.clientX, y: e.clientY };
+    });
+    ["pointerup", "pointercancel"].forEach(function (n) {
+      api.dom.addEventListener(n, function () { drag = null; });
+    });
+    api.dom.addEventListener("wheel", function (e) {
+      cam.d = Math.min(CAM_MAX, Math.max(CAM_MIN, cam.d * Math.exp(e.deltaY * 0.0012)));
+      e.preventDefault();
+    }, { passive: false });
+    document.getElementById("cam-reset").addEventListener("click", function () {
+      cam.off = 0; cam.p = 0.38; cam.d = 13;
+    });
+    document.getElementById("cam-overview").addEventListener("click", function () {
+      cam.off = 0; cam.p = 1.2; cam.d = CAM_MAX;
+    });
+
+    function angleDiff(a, b) {
+      var d = (a - b) % (Math.PI * 2);
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d < -Math.PI) d += Math.PI * 2;
+      return d;
     }
 
     // ---- per-frame pose -----------------------------------------------------
 
     var targetQuat = new T.Quaternion();
     var basis = new T.Matrix4();
-    var wheelAngle = 0;
     var clock = 0;
-    var camOffset = new T.Vector3();
-    var followTarget = new T.Vector3();
 
     function surfaceAt(x, z) {
       var m = api.toMap(x, z);
@@ -1427,26 +1634,26 @@
       updatePuffs(dt);
 
       // Destination beacon pulses.
-      var pulse = 1 + Math.sin(clock * 3) * 0.18;
+      var pulse = 1 + Math.sin(clock * 3) * 0.15;
       ring.scale.set(pulse, pulse, pulse);
       ring.material.opacity = 0.55 + Math.sin(clock * 3) * 0.3;
-      beam.material.opacity = 0.14 + Math.sin(clock * 3) * 0.05;
+      beam.material.opacity = 0.16 + Math.sin(clock * 3) * 0.05;
 
       rover3d.visible = !!rover.pos;
       if (!rover.pos) return;
 
-      // Facing direction on the ground plane. (Heading is measured in
-      // map-width units, which are proportional to world x/z.)
+      // Facing direction on the ground. (Heading is in map-width units, which
+      // are proportional to world x/z.)
       var fwd = new T.Vector3(Math.cos(rover.heading), 0, Math.sin(rover.heading));
       var right = new T.Vector3(fwd.z, 0, -fwd.x);
 
-      // Settle the rover on the terrain: tilt from the four wheel corners.
+      // Settle on the terrain: tilt from the four wheel corners.
       var c = api.surfacePoint(rover.pos.nx, rover.pos.ny, 0);
       var F = surfaceAt(c.x + fwd.x * R.wheelbase / 2, c.z + fwd.z * R.wheelbase / 2);
-      var B = surfaceAt(c.x - fwd.x * R.wheelbase / 2, c.z - fwd.z * R.wheelbase / 2);
+      var Bk = surfaceAt(c.x - fwd.x * R.wheelbase / 2, c.z - fwd.z * R.wheelbase / 2);
       var Rt = surfaceAt(c.x + right.x * R.track / 2, c.z + right.z * R.track / 2);
       var Lt = surfaceAt(c.x - right.x * R.track / 2, c.z - right.z * R.track / 2);
-      var f3 = F.clone().sub(B).normalize();
+      var f3 = F.clone().sub(Bk).normalize();
       var s3 = Rt.clone().sub(Lt).normalize();
       // Model axes: X = right, Y = up, Z = forward, with X = Y x Z.
       var up = new T.Vector3().crossVectors(f3, s3).normalize();
@@ -1461,25 +1668,25 @@
       } else {
         rover3d.quaternion.slerp(targetQuat, 1 - Math.exp(-dt * 8));
       }
-      var groundY = (F.y + B.y + Rt.y + Lt.y) / 4;
-      rover3d.position.set(c.x, Math.max(groundY, c.y - 0.004), c.z);
+      var groundY = (F.y + Bk.y + Rt.y + Lt.y) / 4;
+      rover3d.position.set(c.x, Math.max(groundY, c.y - 0.1), c.z);
 
-      // Wheels roll with the distance actually covered (backwards in reverse).
+      // Wheels roll with the distance covered; they spin in place when dug in.
       var worldSpeed = rover.speed * api.planeWidth;
-      wheelAngle += worldSpeed * dt / R.wheelRadius;
-      wheels.forEach(function (w) { w.rotation.x = wheelAngle; });
+      var spinning = rover.blocked === "deepSand" && input.up && !rover.dead;
+      var spin = spinning ? 4 : worldSpeed;
+      wheels.forEach(function (w) { w.rotation.x += spin * dt / R.wheelRadius; });
 
-      // Mast camera scans, dish tracks slowly; small bob while driving.
+      // Camera head scans, dish turns slowly.
       head.rotation.y = Math.sin(clock * 0.7) * 0.6;
       dish.rotation.y = clock * 0.25;
-      body.position.y = R.rideHeight + (worldSpeed ? Math.sin(clock * 22) * 0.0006 : 0);
+      headlight.intensity = rover.dead ? 0 : 0.8;
 
-      if (worldSpeed) {
-        // Tracks, and dust from the trailing wheels; dustier ground throws more.
-        addTrailPoint(rover3d.position, xAxis);
-        var dir = worldSpeed > 0 ? 1 : -1;
-        var dust = rover.sample ? rover.sample.dustRisk : 0.3;
-        puffDebt += dt * (10 + 70 * dust) * Math.min(2, speedMul());
+      if (worldSpeed || spinning) {
+        if (worldSpeed) addTrailPoint(rover3d.position, xAxis);
+        var dir = worldSpeed < 0 ? -1 : 1;
+        var dustAmt = rover.sample ? rover.sample.dustRisk : 0.3;
+        puffDebt += dt * (8 + 60 * dustAmt) * (spinning ? 2 : Math.min(2, speedMul()));
         var back = zAxis.clone().multiplyScalar(-dir);
         while (puffDebt >= 1) {
           puffDebt -= 1;
@@ -1487,21 +1694,26 @@
           var at = rover3d.position.clone()
             .addScaledVector(zAxis, -dir * R.wheelbase / 2)
             .addScaledVector(xAxis, side * R.track / 2);
-          at.y += 0.006;
-          emitPuff(at, back, xAxis);
+          at.y += 0.3;
+          emitPuff(at, back, xAxis, spinning ? 1.6 : 1);
         }
       }
+      updateMotes(dt, rover3d.position, rover.sample ? rover.sample.dustRisk : 0);
 
-      // Chase camera: behind and above the rover, looking slightly ahead.
-      if (rover.follow) {
-        camOffset.copy(zAxis).multiplyScalar(-0.3);
-        camOffset.y = 0;
-        camOffset.add(new T.Vector3(0, 0.15, 0));
-        followTarget.copy(rover3d.position).addScaledVector(zAxis, 0.08);
-        var k = 1 - Math.exp(-dt * 3);
-        api.camera.position.lerp(rover3d.position.clone().add(camOffset), k);
-        api.controls.target.lerp(followTarget, k);
-      }
+      // Sun follows the rover so its shadow stays crisp.
+      api.sun.position.set(c.x + 40, c.y + 60, c.z + 25);
+      api.sun.target.position.copy(rover3d.position);
+
+      // Chase camera: ease behind the rover's heading, keep above the ground.
+      var h = Math.atan2(fwd.x, fwd.z);
+      cam.h += angleDiff(h, cam.h) * Math.min(1, dt * 3);
+      if (!drag) cam.off *= 1 - Math.min(1, dt * 0.8);
+      var a = cam.h + Math.PI + cam.off;
+      var cx = c.x + Math.sin(a) * Math.cos(cam.p) * cam.d;
+      var cz = c.z + Math.cos(a) * Math.cos(cam.p) * cam.d;
+      var cy = Math.max(rover3d.position.y + 1.4 + Math.sin(cam.p) * cam.d, surfaceAt(cx, cz).y + 1);
+      api.camera.position.set(cx, cy, cz);
+      api.camera.lookAt(c.x, rover3d.position.y + 1.2, c.z);
     });
 
     return { setRoutes: setRoutes, resetTrail: resetTrail };
@@ -1521,7 +1733,18 @@
 
   var startSite = sites[fromSelect.value];
   if (startSite) teleport(startSite);
+  // Face the first destination at the start.
   var destSite = sites[toSelect.value];
-  setDestination(destSite ? { nx: destSite.nx, ny: destSite.ny, name: destSite.name } : null, !reduceMotion);
+  if (startSite && destSite) {
+    rover.heading = Math.atan2((destSite.ny - startSite.ny) * ASPECT, destSite.nx - startSite.nx);
+  }
+  setDestination(destSite ? { nx: destSite.nx, ny: destSite.ny, name: destSite.name } : null, false);
   requestAnimationFrame(loop);
+
+  import("./content.js").then(function (mod) {
+    TEXT = mod.content;
+    applyContent();
+  }).catch(function () {
+    rbStatus.textContent = "content.js could not be loaded (open the page through a local web server).";
+  });
 })();

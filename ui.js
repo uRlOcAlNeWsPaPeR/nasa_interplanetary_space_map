@@ -321,6 +321,8 @@
       }
     }
     ctx.putImageData(image, 0, 0);
+    // The 3D ground gets terrain + hazards only; labels and routes are 3D objects there.
+    if (world) world.updateGround(canvas);
     overlays.forEach(function (draw) { draw(ctx, W, H); });
     drawSites();
     drawSelection();
@@ -328,7 +330,6 @@
     var dustZone = zones.filter(function (zone) { return zone.hz.pattern === "particles"; })[0];
     setDustZone(dustZone || null);
     updateMapLegend();
-    if (view3d) view3d.markDirty();
   }
 
   function drawSites() {
@@ -386,7 +387,6 @@
     if (!zone) {
       dust.particles = [];
       fx.clearRect(0, 0, W, H);
-      if (view3d) view3d.markDirty();
       return;
     }
     // Particles are a lighter version of the dust hazard color.
@@ -465,7 +465,6 @@
       fx.fillStyle = "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + alpha.toFixed(3) + ")";
       fx.fillRect(p.x, p.y, p.size, p.size);
     }
-    if (view3d) view3d.markDirty();
   }
 
   // ---- legends and panels ---------------------------------------------------
@@ -725,7 +724,6 @@
   }
 
   stageEl.addEventListener("wheel", function (e) {
-    if (viewMode === "3d") return; // OrbitControls handles 3D
     e.preventDefault();
     var rect = stageEl.getBoundingClientRect();
     zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
@@ -766,63 +764,52 @@
     showHover(null);
   });
 
-  // ---- 3D view --------------------------------------------------------------
+  // ---- 3D world (the main view) ---------------------------------------------
   //
-  // The 2D map (layers, hazards, route, sites, selection) is drawn exactly as
-  // before and then draped as a texture over a terrain mesh built from
-  // MarsData.getElevationGrid(), so every 2D feature shows up in 3D too.
+  // The full-screen world Ridgeback drives in. The terrain is built from
+  // MarsData.getElevationGrid(), so swapping in real data reshapes it, and the
+  // map's terrain + hazard colouring is draped over it as a texture, so the
+  // layer toggles and hazard highlights show up on the ground you drive on.
+  // Labels, routes and markers are real 3D objects (see rover.js), not paint.
 
-  var PLANE_W = 4;            // world units; depth follows the map's aspect
-  var PLANE_H = PLANE_W * H / W;
-  var MESH_SEG_X = 240;       // mesh resolution
+  var WORLD_W = 400;           // world units across the map (rover is ~2.6 long)
+  var WORLD_D = WORLD_W * H / W;
+  var MESH_SEG_X = 320;        // mesh resolution
   var MESH_SEG_Y = Math.round(MESH_SEG_X * H / W);
-  var HEIGHT_SCALE = 0.55;    // world units for the full elevation range (exaggerated)
-  var PIN_HEIGHT = 0.22;
-  var SCENE_BG = 0x14100e;
-  var CLICK_SLOP = 5;         // px a press may move and still count as a click
-  var CAMERA_START = { x: 0, y: 2.9, z: 3.3 };
+  var HEIGHT_SCALE = 60;       // world units for the full elevation range (exaggerated)
+  var SKY = 0xd9a47c;          // Ridgeback's dusty sky
+  var CLICK_SLOP = 5;          // px a press may move and still count as a click
 
-  var map3dEl = document.getElementById("map-3d");
-  var mapWrap = document.getElementById("map-wrap");
-  var viewButtons = [].slice.call(document.querySelectorAll("button[data-view]"));
-  var view3d = null;
-  var viewMode = "2d";
+  var worldEl = document.getElementById("world");
+  var world = null;
   var ready3d = [];
-  var viewListeners = [];
 
-  // Run cb(api) once the 3D scene exists (immediately if it already does).
+  // Run cb(api) once the 3D world exists (immediately if it already does).
   window.MapUI.on3dReady = function (cb) {
-    if (view3d) cb(view3d.api);
+    if (world) cb(world.api);
     else ready3d.push(cb);
   };
-  window.MapUI.viewMode = function () { return viewMode; };
-  window.MapUI.onViewChange = function (cb) { viewListeners.push(cb); };
+  // Kept for modules written against the old 2D/3D toggle: the world is always 3D.
+  window.MapUI.viewMode = function () { return world ? "3d" : "2d"; };
+  window.MapUI.onViewChange = function () {};
 
-  function create3d() {
+  function createWorld() {
     var T = window.THREE;
     var renderer = new T.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.outputEncoding = T.sRGBEncoding;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = T.PCFSoftShadowMap;
-    map3dEl.appendChild(renderer.domElement);
+    worldEl.appendChild(renderer.domElement);
 
     var scene = new T.Scene();
-    scene.background = new T.Color(SCENE_BG);
-    scene.fog = new T.Fog(SCENE_BG, 6, 12);
-    var camera = new T.PerspectiveCamera(40, W / H, 0.05, 50);
-    camera.position.set(CAMERA_START.x, CAMERA_START.y, CAMERA_START.z);
+    scene.background = new T.Color(SKY);
+    scene.fog = new T.Fog(SKY, 60, 330);
+    var camera = new T.PerspectiveCamera(55, 1, 0.1, 900);
+    camera.position.set(0, 120, 160);
+    camera.lookAt(0, 0, 0);
 
-    var controls = new T.OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.maxPolarAngle = Math.PI * 0.46; // don't go below the ground
-    controls.minDistance = 1.2;
-    controls.maxDistance = 8;
-    controls.target.set(0, 0, 0);
-    controls.update();
-
-    // Texture = 2D map canvas + dust particle canvas, recomposed when they change.
+    // Ground texture: the map's terrain and hazard colouring (no labels/routes).
     var comp = document.createElement("canvas");
     comp.width = W;
     comp.height = H;
@@ -833,40 +820,45 @@
 
     // Terrain mesh from the contract's elevation grid. PlaneGeometry vertices
     // run row by row from the top edge, the same order as the grid.
-    var geom = new T.PlaneGeometry(PLANE_W, PLANE_H, MESH_SEG_X, MESH_SEG_Y);
+    var geom = new T.PlaneGeometry(WORLD_W, WORLD_D, MESH_SEG_X, MESH_SEG_Y);
     var grid = data.getElevationGrid(MESH_SEG_X + 1, MESH_SEG_Y + 1);
     var range = withRange(grid);
     function heightOf(e) {
       return (e - range.min) / (range.max - range.min || 1) * HEIGHT_SCALE;
     }
     var pos = geom.attributes.position;
-    for (var i = 0; i < pos.count; i++) pos.setZ(i, heightOf(grid[i]));
+    // Small per-vertex brightness changes give close-up grain the 720px
+    // texture can't (purely visual, the same trick Ridgeback uses).
+    var tint = new Float32Array(pos.count * 3);
+    for (var i = 0; i < pos.count; i++) {
+      pos.setZ(i, heightOf(grid[i]));
+      var vx = pos.getX(i), vy = pos.getY(i);
+      var k = 0.93 + 0.07 * Math.sin(vx * 0.7 + vy * 0.5) * Math.cos(vy * 0.9 - vx * 0.3);
+      tint[i * 3] = tint[i * 3 + 1] = tint[i * 3 + 2] = k;
+    }
+    geom.setAttribute("color", new T.BufferAttribute(tint, 3));
     geom.computeVertexNormals();
 
-    var mesh = new T.Mesh(geom, new T.MeshLambertMaterial({ map: texture }));
-    mesh.rotation.x = -Math.PI / 2; // lie flat; top of the map is the far side
-    mesh.receiveShadow = true;
-    mesh.castShadow = true;
-    scene.add(mesh);
+    var ground = new T.Mesh(geom, new T.MeshStandardMaterial({
+      map: texture, vertexColors: true, flatShading: true, roughness: 1, metalness: 0
+    }));
+    ground.rotation.x = -Math.PI / 2; // lie flat; top of the map is the far side
+    ground.receiveShadow = true;
+    scene.add(ground);
 
-    // Lighting is gentle because the texture already carries hillshading.
-    // Sky/ground hemisphere light gives models (the rover) a Mars-tinted fill.
-    scene.add(new T.AmbientLight(0xffffff, 0.5));
-    scene.add(new T.HemisphereLight(0xcfdcff, 0x7a3e22, 0.32));
-    var sun = new T.DirectionalLight(0xfff1e0, 0.62);
-    sun.position.set(-2, 3, 1);
+    // Ridgeback's lighting: warm sky/ground fill plus a sun that follows the
+    // rover (rover.js moves it) so shadows stay sharp near the camera.
+    scene.add(new T.HemisphereLight(0xffe0c0, 0x7a3a20, 0.75));
+    var sun = new T.DirectionalLight(0xfff0dd, 1.0);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -3;
-    sun.shadow.camera.right = 3;
-    sun.shadow.camera.top = 3;
-    sun.shadow.camera.bottom = -3;
-    sun.shadow.camera.near = 0.5;
-    sun.shadow.camera.far = 10;
-    sun.shadow.bias = -0.0005;
-    sun.shadow.normalBias = 0.01;
-    sun.shadow.camera.updateProjectionMatrix();
+    var sc = sun.shadow.camera;
+    sc.left = -30; sc.right = 30; sc.top = 30; sc.bottom = -30; sc.near = 1; sc.far = 260;
+    sc.updateProjectionMatrix();
+    sun.shadow.bias = -0.0004;
+    sun.position.set(40, 90, 25);
     scene.add(sun);
+    scene.add(sun.target);
 
     // Height of the rendered terrain surface at a map position, interpolated
     // from the same grid the mesh is built from, so things sit exactly on it.
@@ -882,23 +874,72 @@
       var e = a + (b - a) * fx0 + (c - a) * fy0 + (a - b - c + d) * fx0 * fy0;
       return heightOf(e);
     }
+    function surfacePoint(nx, ny, lift) {
+      return new T.Vector3((nx - 0.5) * WORLD_W, surfaceY(nx, ny) + (lift || 0), (ny - 0.5) * WORLD_D);
+    }
 
-    // Site pins standing up from the terrain, in the site-type colors.
+    // Site markers: a pole, a coloured beacon and a name label that always
+    // faces the camera, so sites can be found while driving.
+    function labelSprite(text, color) {
+      var c = document.createElement("canvas");
+      var g = c.getContext("2d");
+      var font = "600 44px system-ui, sans-serif";
+      g.font = font;
+      c.width = Math.ceil(g.measureText(text).width) + 48;
+      c.height = 72;
+      g.font = font;
+      g.fillStyle = "rgba(18,26,34,.78)";
+      g.beginPath();
+      if (g.roundRect) g.roundRect(0, 0, c.width, c.height, 16); else g.rect(0, 0, c.width, c.height);
+      g.fill();
+      g.fillStyle = color;
+      g.fillRect(16, 26, 20, 20);
+      g.fillStyle = "#ffffff";
+      g.textBaseline = "middle";
+      g.fillText(text, 44, c.height / 2 + 2);
+      var tex = new T.CanvasTexture(c);
+      tex.encoding = T.sRGBEncoding;
+      var sprite = new T.Sprite(new T.SpriteMaterial({ map: tex, depthWrite: false, fog: false }));
+      var h = 2.6;
+      sprite.scale.set(h * c.width / c.height, h, 1);
+      return sprite;
+    }
+    // A ring on the ground and a soft light column (no solid pole), so the
+    // rover can drive right onto a site without clipping through anything.
     sites.forEach(function (site) {
-      var color = new T.Color(SITE_COLORS[site.type] || SITE_FALLBACK_COLOR);
-      var x = (site.nx - 0.5) * PLANE_W;
-      var z = (site.ny - 0.5) * PLANE_H;
-      var y = heightOf(data.sampleTerrainAt(site.nx, site.ny).elevation);
-      var stem = new T.Mesh(
-        new T.CylinderGeometry(0.006, 0.006, PIN_HEIGHT, 6),
-        new T.MeshBasicMaterial({ color: 0xf1e7df })
-      );
-      stem.position.set(x, y + PIN_HEIGHT / 2, z);
-      var head = new T.Mesh(new T.SphereGeometry(0.035, 16, 12), new T.MeshBasicMaterial({ color: color }));
-      head.position.set(x, y + PIN_HEIGHT, z);
-      scene.add(stem);
-      scene.add(head);
+      var color = SITE_COLORS[site.type] || SITE_FALLBACK_COLOR;
+      var base = surfacePoint(site.nx, site.ny, 0);
+      var ring = new T.Mesh(new T.RingGeometry(3.2, 3.8, 48), new T.MeshBasicMaterial({
+        color: color, side: T.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false
+      }));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(base.x, base.y + 0.12, base.z);
+      var column = new T.Mesh(new T.CylinderGeometry(0.35, 0.35, 12, 16, 1, true), new T.MeshBasicMaterial({
+        color: color, transparent: true, opacity: 0.25, side: T.DoubleSide, depthWrite: false, blending: T.AdditiveBlending
+      }));
+      column.position.set(base.x, base.y + 6, base.z);
+      var beacon = new T.Mesh(new T.SphereGeometry(0.7, 16, 12),
+        new T.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.6 }));
+      beacon.position.set(base.x, base.y + 12.4, base.z);
+      var label = labelSprite(site.name, color);
+      label.position.set(base.x, base.y + 14.6, base.z);
+      scene.add(ring);
+      scene.add(column);
+      scene.add(beacon);
+      scene.add(label);
     });
+
+    // Inspect marker: where the user last clicked.
+    var marker = new T.Group();
+    var markRing = new T.Mesh(new T.RingGeometry(1.6, 2.1, 40),
+      new T.MeshBasicMaterial({ color: 0xffffff, side: T.DoubleSide, transparent: true, opacity: 0.9, depthWrite: false }));
+    markRing.rotation.x = -Math.PI / 2;
+    marker.add(markRing);
+    var markPole = new T.Mesh(new T.CylinderGeometry(0.08, 0.08, 5, 6), new T.MeshBasicMaterial({ color: 0xffffff }));
+    markPole.position.y = 2.5;
+    marker.add(markPole);
+    marker.visible = false;
+    scene.add(marker);
 
     // Picking: ray from the pointer to the terrain, read the texture coords.
     var raycaster = new T.Raycaster();
@@ -908,7 +949,7 @@
       ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(ndc, camera);
-      var hit = raycaster.intersectObject(mesh)[0];
+      var hit = raycaster.intersectObject(ground)[0];
       return hit && hit.uv ? { nx: hit.uv.x, ny: 1 - hit.uv.y } : null;
     }
 
@@ -919,72 +960,69 @@
       if (!downAt || e.button !== 0) return;
       var moved = Math.abs(e.clientX - downAt.x) + Math.abs(e.clientY - downAt.y);
       downAt = null;
-      if (moved > CLICK_SLOP) return; // that was a drag to rotate
+      if (moved > CLICK_SLOP) return; // that was a drag to look around
       var p = pick(e);
       if (p) selectAt(p);
     });
-    el.addEventListener("pointermove", function (e) {
-      var p = pick(e);
-      el.classList.toggle("on-terrain", !!p);
-      showHover(p);
-    });
-    el.addEventListener("pointerleave", function () { showHover(null); });
-
-    var dirty = true;
-    var running = false;
+    // Hover readout, at most once per frame (picking the big mesh isn't free).
+    var hoverEvent = null;
+    el.addEventListener("pointermove", function (e) { hoverEvent = e; });
+    el.addEventListener("pointerleave", function () { hoverEvent = null; showHover(null); });
 
     function resize() {
-      var w = map3dEl.clientWidth;
-      if (!w) return;
-      var h = Math.round(w * H / W);
-      renderer.setSize(w, h);
+      var w = worldEl.clientWidth || 1, h = worldEl.clientHeight || 1;
+      renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     }
-    if (window.ResizeObserver) {
-      new ResizeObserver(resize).observe(map3dEl);
-    } else {
-      window.addEventListener("resize", resize);
-    }
+    if (window.ResizeObserver) new ResizeObserver(resize).observe(worldEl);
+    else window.addEventListener("resize", resize);
+    resize();
 
+    var dirty = true;
     var frameCallbacks = [];
     var lastFrame = 0;
+    var clock = 0;
 
     function frame(now) {
-      if (viewMode !== "3d") {
-        running = false;
-        lastFrame = 0;
-        return;
-      }
       var dt = lastFrame ? Math.min(0.05, (now - lastFrame) / 1000) : 0;
       lastFrame = now;
+      clock += dt;
+      if (hoverEvent && !downAt) {
+        showHover(pick(hoverEvent));
+        hoverEvent = null;
+      }
+      if (selected) {
+        marker.visible = true;
+        marker.position.copy(surfacePoint(selected.nx, selected.ny, 0.15));
+        var s = 1 + Math.sin(clock * 4) * 0.12;
+        markRing.scale.set(s, s, s);
+      } else {
+        marker.visible = false;
+      }
       frameCallbacks.forEach(function (cb) { cb(dt); });
-      controls.update();
       if (dirty) {
-        compCtx.drawImage(canvas, 0, 0);
-        compCtx.drawImage(fxCanvas, 0, 0);
         texture.needsUpdate = true;
         dirty = false;
       }
       renderer.render(scene, camera);
       requestAnimationFrame(frame);
     }
+    requestAnimationFrame(frame);
 
-    // What other modules (rover.js) get to build on the 3D scene.
+    // What other modules (rover.js) get to build on the world.
     var api = {
       THREE: T,
       scene: scene,
       camera: camera,
-      controls: controls,
-      planeWidth: PLANE_W,
-      planeDepth: PLANE_H,
-      // World-space point on the terrain surface for a map position.
-      surfacePoint: function (nx, ny, lift) {
-        return new T.Vector3((nx - 0.5) * PLANE_W, surfaceY(nx, ny) + (lift || 0), (ny - 0.5) * PLANE_H);
-      },
+      sun: sun,
+      dom: renderer.domElement,
+      planeWidth: WORLD_W,
+      planeDepth: WORLD_D,
+      surfacePoint: surfacePoint,
       // Map position (nx, ny) for a world-space x/z.
       toMap: function (x, z) {
-        return { nx: x / PLANE_W + 0.5, ny: z / PLANE_H + 0.5 };
+        return { nx: x / WORLD_W + 0.5, ny: z / WORLD_D + 0.5 };
       },
       onFrame: function (cb) { frameCallbacks.push(cb); }
     };
@@ -993,32 +1031,17 @@
 
     return {
       api: api,
-      markDirty: function () { dirty = true; },
-      start: function () {
-        resize();
+      // Called by render() with the freshly drawn terrain + hazards, before
+      // labels and routes are painted on the minimap.
+      updateGround: function (source) {
+        compCtx.drawImage(source, 0, 0);
         dirty = true;
-        if (!running) {
-          running = true;
-          requestAnimationFrame(frame);
-        }
-      },
-      resetView: function () {
-        camera.position.set(CAMERA_START.x, CAMERA_START.y, CAMERA_START.z);
-        controls.target.set(0, 0, 0);
-        controls.update();
-      },
-      // factor > 1 moves the camera closer to what it's looking at.
-      zoom: function (factor) {
-        var offset = camera.position.clone().sub(controls.target);
-        var dist = Math.min(controls.maxDistance, Math.max(controls.minDistance, offset.length() / factor));
-        camera.position.copy(controls.target).add(offset.setLength(dist));
-        controls.update();
       }
     };
   }
 
   function has3d() {
-    if (!window.THREE || !window.THREE.OrbitControls) return false;
+    if (!window.THREE) return false;
     try {
       var test = document.createElement("canvas");
       return !!(test.getContext("webgl") || test.getContext("experimental-webgl"));
@@ -1027,48 +1050,23 @@
     }
   }
 
-  function setView(mode) {
-    if (mode === "3d" && !has3d()) mode = "2d";
-    viewMode = mode;
-    mapWrap.classList.toggle("is-3d", mode === "3d");
-    viewButtons.forEach(function (b) {
-      b.setAttribute("aria-pressed", String(b.getAttribute("data-view") === mode));
-    });
-    showHover(null);
-    document.getElementById("map-hint").textContent = mode === "3d"
-      ? "Drag to rotate · right-drag to pan · scroll to zoom"
-      : "Scroll to zoom · drag to pan when zoomed · click to inspect";
-    if (mode === "3d") {
-      if (!view3d) view3d = create3d();
-      view3d.start();
-    }
-    viewListeners.forEach(function (cb) { cb(mode); });
-  }
+  // ---- minimap controls --------------------------------------------------------
 
-  viewButtons.forEach(function (b) {
-    b.addEventListener("click", function () { setView(b.getAttribute("data-view")); });
+  var minimapEl = document.getElementById("minimap");
+  document.getElementById("map-expand").addEventListener("click", function () {
+    var big = minimapEl.classList.toggle("is-expanded");
+    this.setAttribute("aria-pressed", String(big));
+    this.textContent = big ? "Shrink map" : "Expand map";
+    requestAnimationFrame(applyZoom);
   });
-  if (!has3d()) {
-    var btn3d = viewButtons.filter(function (b) { return b.getAttribute("data-view") === "3d"; })[0];
-    btn3d.disabled = true;
-    btn3d.title = "3D needs WebGL and the three.js script (internet connection)";
-  }
   document.getElementById("reset-view").addEventListener("click", function () {
-    if (viewMode === "3d") {
-      if (view3d) view3d.resetView();
-    } else {
-      zoom2d = { s: 1, x: 0, y: 0 };
-      applyZoom();
-    }
+    zoom2d = { s: 1, x: 0, y: 0 };
+    applyZoom();
   });
   [["zoom-in", ZOOM_STEP], ["zoom-out", 1 / ZOOM_STEP]].forEach(function (pair) {
     document.getElementById(pair[0]).addEventListener("click", function () {
-      if (viewMode === "3d") {
-        if (view3d) view3d.zoom(pair[1]);
-      } else {
-        var c = stageCenter();
-        zoomAt(pair[1], c.x, c.y);
-      }
+      var c = stageCenter();
+      zoomAt(pair[1], c.x, c.y);
     });
   });
   window.addEventListener("resize", applyZoom);
@@ -1088,10 +1086,14 @@
   buildLayerPanel();
   buildHazardPanel();
   buildSiteLegend();
+  if (has3d()) {
+    world = createWorld();
+  } else {
+    worldEl.classList.add("no-3d");
+    worldEl.textContent = "The 3D view needs WebGL and the three.js script (an internet connection). The map still works.";
+  }
   render();
   showInfo();
-  setView("3d");
-
   // Prepare the hazard fields after first paint, so the first slider drag
   // doesn't stall while they are sampled.
   setTimeout(function () {
