@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ridgeback rover</title>
+<style>
+:root{color-scheme:light;--panel:#f2f5f7;--text:#14202b;--muted:#4e6272;--line:#c5d0d8;--accent:#1f5f8b;--ok:#2f7d4f;--warn:#a86a00;--bad:#b3261e;--btn:#dfe8ee;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--panel:#121a22;--text:#e6eef4;--muted:#9fb3c2;--line:#2d3d4a;--accent:#7cc4ec;--ok:#6fcf97;--warn:#f2c46d;--bad:#ff8a80;--btn:#1d2a35}}
+:root[data-theme="dark"]{color-scheme:dark;--panel:#121a22;--text:#e6eef4;--muted:#9fb3c2;--line:#2d3d4a;--accent:#7cc4ec;--ok:#6fcf97;--warn:#f2c46d;--bad:#ff8a80;--btn:#1d2a35}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;height:100%;background:#d9a47c;color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#app{position:relative;width:100%;height:100%}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+#hud{position:absolute;left:12px;top:12px;width:min(270px,calc(100% - 24px));background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+#hud h1{font-size:17px;font-weight:600;margin:0}
+#hud .tag{margin:0 0 10px;color:var(--muted);font-size:13px}
+.row{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}
+.bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden}
+#fill{height:100%;width:100%;background:var(--ok);transition:width .15s}
+#status{font-size:13px;margin:10px 0 6px;min-height:2.8em}
+#hint{font-size:12px;color:var(--muted);margin:0 0 10px}
+button{font:inherit;color:var(--text);background:var(--btn);border:1px solid var(--line);border-radius:8px;cursor:pointer;touch-action:none;user-select:none}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#reset{padding:6px 12px;font-size:13px;touch-action:auto}
+#pad{position:absolute;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));display:grid;grid-template-columns:repeat(3,58px);grid-template-rows:repeat(2,58px);gap:6px}
+#pad button{font-size:22px}
+#pad [data-k=f]{grid-column:2;grid-row:1}
+#pad [data-k=l]{grid-column:1;grid-row:2}
+#pad [data-k=b]{grid-column:2;grid-row:2}
+#pad [data-k=r]{grid-column:3;grid-row:2}
+</style>
+</head>
+<body>
+<div id="app">
+<canvas id="cv"></canvas>
+<div id="hud">
+<h1 id="name">Ridgeback</h1>
+<p class="tag" id="tag">Your six-wheeled lifeline across Mars.</p>
+<div class="row"><span>Battery</span><span id="pct">100%</span></div>
+<div class="bar"><div id="fill"></div></div>
+<p id="status">Ridgeback is ready.</p>
+<p id="hint">Drag to look around. Drive with arrow keys or WASD, or hold the buttons.</p>
+<button id="reset" type="button">Start over</button>
+</div>
+<div id="pad">
+<button type="button" data-k="f" aria-label="Drive forward">&#8593;</button>
+<button type="button" data-k="l" aria-label="Turn left">&#8592;</button>
+<button type="button" data-k="b" aria-label="Reverse">&#8595;</button>
+<button type="button" data-k="r" aria-label="Turn right">&#8594;</button>
+</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+var S={ready:"Ridgeback is ready. Drive with the arrow keys or buttons.",moving:"Ridgeback is driving. Keep an eye on the battery.",charging:"Recharging in sunlight. Waiting is safe, but time is limited.",low:"Battery low. Find a sunny, flat spot and wait to recharge.",crit:"Battery critical. Ridgeback will stop soon.",failed:"Ridgeback has run out of power. The mission is over."};
+var app=document.getElementById("app"),cv=document.getElementById("cv"),el=function(i){return document.getElementById(i)};
+var rd;
+try{rd=new THREE.WebGLRenderer({canvas:cv,antialias:true})}catch(e){el("status").textContent="The 3D view needs WebGL, which this browser doesn\u2019t support.";return}
+rd.setPixelRatio(Math.min(window.devicePixelRatio||1,2));rd.shadowMap.enabled=true;
+var scene=new THREE.Scene();scene.background=new THREE.Color(0xd9a47c);scene.fog=new THREE.Fog(0xd9a47c,40,230);
+var camera=new THREE.PerspectiveCamera(55,1,.1,500);
+scene.add(new THREE.HemisphereLight(0xffe0c0,0x7a3a20,.75));
+var sun=new THREE.DirectionalLight(0xfff0dd,1.05);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+var sc=sun.shadow.camera;sc.left=-25;sc.right=25;sc.top=25;sc.bottom=-25;sc.near=1;sc.far=200;
+scene.add(sun);scene.add(sun.target);
+
+function H(x,z){return 1.6*Math.sin(x*.045)*Math.cos(z*.04)+.8*Math.sin(x*.11+z*.09)+.35*Math.sin(z*.27+x*.05)}
+var g=new THREE.PlaneGeometry(400,400,160,160);g.rotateX(-Math.PI/2);
+var p=g.attributes.position,cols=new Float32Array(p.count*3),i,x,z,k;
+for(i=0;i<p.count;i++){x=p.getX(i);z=p.getZ(i);p.setY(i,H(x,z));k=.9+.12*Math.sin(x*.7+z*.5)*Math.cos(z*.9);cols[i*3]=.71*k;cols[i*3+1]=.34*k;cols[i*3+2]=.18*k}
+g.setAttribute("color",new THREE.BufferAttribute(cols,3));g.computeVertexNormals();
+var ground=new THREE.Mesh(g,new THREE.MeshStandardMaterial({vertexColors:true,flatShading:true,roughness:1}));ground.receiveShadow=true;scene.add(ground);
+
+var seed=7;function R(){seed=(seed*16807)%2147483647;return seed/2147483647}
+var rm=new THREE.MeshStandardMaterial({color:0x8a4528,flatShading:true,roughness:1});
+for(i=0;i<80;i++){x=(R()-.5)*320;z=(R()-.5)*320;if(Math.hypot(x,z)<10)continue;var r=.4+R()*1.6,m=new THREE.Mesh(new THREE.DodecahedronGeometry(r,0),rm);m.position.set(x,H(x,z)+r*.3,z);m.rotation.set(R()*3,R()*3,R()*3);m.scale.y=.6;m.castShadow=m.receiveShadow=true;scene.add(m)}
+
+var rover=new THREE.Group();scene.add(rover);
+function mat(c){return new THREE.MeshStandardMaterial({color:c,flatShading:true,roughness:.7,metalness:.1})}
+function add(geo,c,px,py,pz,par){var m=new THREE.Mesh(geo,mat(c));m.position.set(px,py,pz);m.castShadow=true;(par||rover).add(m);return m}
+function B(w,h,d){return new THREE.BoxGeometry(w,h,d)}
+add(B(1.6,.6,2.6),0xe8e4dc,0,1.25,0);
+add(B(1.1,.2,1.4),0xb9b3a6,0,1.62,.2);
+var panel=add(B(2.7,.08,1.9),0x1f3a5f,0,1.95,-.15);panel.rotation.x=-.1;
+add(B(2.7,.1,.06),0xe8e4dc,0,1.97,-1.1).rotation.x=-.1;
+add(B(.06,.1,1.9),0xe8e4dc,-1.35,1.95,-.15);add(B(.06,.1,1.9),0xe8e4dc,1.35,1.95,-.15);
+add(new THREE.CylinderGeometry(.05,.05,.9,8),0x4a4a4a,-.55,2.1,.95);
+add(B(.5,.26,.3),0xe8e4dc,-.55,2.62,.95);
+add(new THREE.SphereGeometry(.08,8,6),0x14202b,-.55,2.62,1.12);
+add(new THREE.CylinderGeometry(.04,.04,.7,6),0x4a4a4a,.6,2.2,-.85);
+var dish=add(new THREE.CylinderGeometry(.42,.05,.12,16),0xe8e4dc,.6,2.6,-.85);dish.rotation.x=-.5;
+var sx,wz,wheels=[],wg=new THREE.CylinderGeometry(.45,.45,.36,14),hg=new THREE.CylinderGeometry(.18,.18,.4,10),sg=B(.42,.07,.7);wg.rotateZ(Math.PI/2);hg.rotateZ(Math.PI/2);
+for(sx=-1;sx<=1;sx+=2){
+add(B(.08,.08,2.8),0x4a4a4a,sx*.95,.98,0);
+for(wz=1.2;wz>=-1.2;wz-=1.2){
+add(B(.08,.55,.08),0x4a4a4a,sx*.95,.72,wz);
+var pv=new THREE.Group();pv.position.set(sx*1.15,.45,wz);rover.add(pv);
+add(wg,0x2a2a2a,0,0,0,pv);add(hg,0x9a9a9a,0,0,0,pv);add(sg,0x6a6a6a,0,0,0,pv);
+wheels.push(pv)}}
+
+var K={f:0,b:0,l:0,r:0},km={ArrowUp:"f",KeyW:"f",ArrowDown:"b",KeyS:"b",ArrowLeft:"l",KeyA:"l",ArrowRight:"r",KeyD:"r"};
+addEventListener("keydown",function(e){var q=km[e.code];if(q){K[q]=1;e.preventDefault()}});
+addEventListener("keyup",function(e){var q=km[e.code];if(q)K[q]=0});
+document.querySelectorAll("#pad button").forEach(function(b){var q=b.dataset.k;
+b.addEventListener("pointerdown",function(e){K[q]=1;e.preventDefault()});
+["pointerup","pointerleave","pointercancel"].forEach(function(n){b.addEventListener(n,function(){K[q]=0})})});
+
+var cam={off:0,p:.38,d:11,h:0},drag=null;
+cv.addEventListener("pointerdown",function(e){drag={x:e.clientX,y:e.clientY};cv.setPointerCapture(e.pointerId)});
+cv.addEventListener("pointermove",function(e){if(!drag)return;cam.off-=(e.clientX-drag.x)*.008;cam.p=Math.min(1.3,Math.max(.08,cam.p+(e.clientY-drag.y)*.006));drag={x:e.clientX,y:e.clientY}});
+["pointerup","pointercancel"].forEach(function(n){cv.addEventListener(n,function(){drag=null})});
+cv.addEventListener("wheel",function(e){cam.d=Math.min(24,Math.max(5,cam.d+e.deltaY*.01));e.preventDefault()},{passive:false});
+
+var st;function init(){st={x:0,z:0,h:0,v:0,bat:100,pitch:0,dead:false};cam.h=0;cam.off=0}
+init();el("reset").addEventListener("click",init);
+
+function resize(){var w=app.clientWidth||1,h=app.clientHeight||1;rd.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
+addEventListener("resize",resize);resize();
+
+var last=performance.now();
+function frame(t){
+var dt=Math.min((t-last)/1000,.05);last=t;
+var th=(K.f-K.b),sr=(K.r-K.l);if(st.dead){th=0;sr=0}
+st.v+=(th*4-st.v)*Math.min(1,dt*2.5);
+var mv=Math.abs(st.v)>.3,dir=st.v<-.3?-1:1;
+st.h-=sr*dt*1.3*dir*(.35+.65*Math.min(1,Math.abs(st.v)/2));
+st.x=Math.max(-190,Math.min(190,st.x+Math.sin(st.h)*st.v*dt));
+st.z=Math.max(-190,Math.min(190,st.z+Math.cos(st.h)*st.v*dt));
+if(mv)st.bat-=dt*1.2*(1+6*Math.abs(st.pitch))*Math.abs(st.v)/4*1.4;
+else if(!st.dead)st.bat+=dt*2.2;
+st.bat=Math.max(0,Math.min(100,st.bat));if(st.bat<=0)st.dead=true;
+var fx=Math.sin(st.h),fz=Math.cos(st.h),ax=Math.cos(st.h),az=-Math.sin(st.h);
+var hF=H(st.x+fx*1.2,st.z+fz*1.2),hB=H(st.x-fx*1.2,st.z-fz*1.2),hP=H(st.x+ax,st.z+az),hN=H(st.x-ax,st.z-az),gy=(hF+hB+hP+hN)/4;
+st.pitch=Math.atan2(hF-hB,2.4);
+rover.position.set(st.x,gy,st.z);rover.rotation.set(-st.pitch,st.h,Math.atan2(hP-hN,2),"YXZ");
+for(var j=0;j<6;j++)wheels[j].rotation.x+=st.v*dt/.45;
+sun.position.set(st.x+40,60,st.z+25);sun.target.position.set(st.x,gy,st.z);
+cam.h+=(st.h-cam.h)*Math.min(1,dt*3);if(!drag)cam.off*=1-Math.min(1,dt*.8);
+var a=cam.h+Math.PI+cam.off,cx=st.x+Math.sin(a)*Math.cos(cam.p)*cam.d,cz=st.z+Math.cos(a)*Math.cos(cam.p)*cam.d,cy=Math.max(gy+1.4+Math.sin(cam.p)*cam.d,H(cx,cz)+1);
+camera.position.set(cx,cy,cz);camera.lookAt(st.x,gy+1.2,st.z);
+var f=el("fill");f.style.width=st.bat+"%";f.style.background=st.bat<10?"var(--bad)":st.bat<25?"var(--warn)":"var(--ok)";
+el("pct").textContent=Math.round(st.bat)+"%";
+el("status").textContent=st.dead?S.failed:st.bat<10?S.crit:st.bat<25?S.low:mv?S.moving:st.bat<99.5?S.charging:S.ready;
+rd.render(scene,camera);requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
