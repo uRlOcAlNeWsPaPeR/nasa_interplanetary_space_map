@@ -31,7 +31,7 @@
     header span { color: var(--muted); font-size: 12px; }
     main {
       display: grid;
-      grid-template-columns: 210px minmax(0, 1fr) 250px;
+      grid-template-columns: 210px minmax(0, 1fr) 290px;
       gap: 16px;
       padding: 16px;
       align-items: start;
@@ -51,7 +51,124 @@
       color: var(--muted);
     }
     #map-wrap { position: relative; }
-    #map-stage { position: relative; }
+    #map-stage { position: relative; overflow: hidden; border-radius: 8px; }
+    #map-zoom { position: relative; transform-origin: 0 0; }
+    #map-wrap.is-3d #map-zoom { display: none; }
+    #map.is-zoomed { cursor: grab; }
+
+    /* Live risk indicator, top-right of the map. */
+    #risk-hud {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 190px;
+      padding: 8px 10px;
+      background: rgba(20, 16, 14, .85);
+      border: 1px solid var(--risk, var(--line));
+      border-radius: 6px;
+      font-size: 12px;
+      pointer-events: none;
+    }
+    #risk-hud[hidden] { display: none; }
+    .risk-head { display: flex; justify-content: space-between; color: var(--muted); }
+    .risk-head strong { color: var(--risk); }
+    .risk-bar { height: 6px; margin: 6px 0; background: var(--line); border-radius: 3px; overflow: hidden; }
+    .risk-bar span { display: block; height: 100%; background: var(--risk); transition: width .3s ease, background-color .3s ease; }
+    #risk-cause { color: var(--muted); }
+
+    /* Route and rover keys in the map legend. */
+    #map-legend-routes { display: grid; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+    .map-legend-row.is-off { opacity: .55; }
+    .route-line {
+      display: inline-block;
+      width: 18px;
+      height: 3px;
+      flex: none;
+      background: var(--rc);
+      border-radius: 2px;
+      box-shadow: 0 0 0 1px #14100e;
+    }
+    .legend-rover {
+      width: 14px;
+      height: 11px;
+      flex: none;
+      background: #f1e7df;
+      clip-path: polygon(100% 50%, 0 0, 22% 50%, 0 100%);
+    }
+    .legend-dest {
+      width: 12px;
+      height: 12px;
+      flex: none;
+      border: 2px solid #ffd166;
+      border-radius: 50%;
+    }
+
+    /* Route option cards. */
+    .check { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+    .hint { margin: 4px 0 8px; color: var(--muted); font-size: 12px; }
+    .hint:empty { display: none; }
+    #route-options { display: grid; gap: 8px; margin: 10px 0 12px; }
+    .route-card {
+      display: grid;
+      gap: 3px;
+      position: relative;
+      padding: 8px 10px 8px 30px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .route-card:hover { border-color: var(--muted); }
+    .route-card.is-selected { border-color: var(--rc); background: rgba(255, 255, 255, .03); }
+    .route-card input { position: absolute; left: 9px; top: 10px; margin: 0; accent-color: var(--rc); }
+    .route-head { display: flex; align-items: center; gap: 8px; }
+    .route-head .route-line { --rc: inherit; }
+    .badge {
+      margin-left: auto;
+      padding: 1px 6px;
+      font-size: 11px;
+      font-style: normal;
+      color: #14100e;
+      background: var(--rc);
+      border-radius: 10px;
+    }
+    .route-goal, .route-stats { color: var(--muted); font-size: 12px; }
+    .route-stats { color: var(--text); font-variant-numeric: tabular-nums; }
+    .route-points { margin: 2px 0 0; padding: 0; list-style: none; font-size: 12px; }
+    .route-points li { padding-left: 14px; position: relative; }
+    .route-points li::before { position: absolute; left: 0; }
+    .route-points .pro::before { content: "+"; color: #5fd08a; }
+    .route-points .con::before { content: "\2212"; color: #ff8a7a; }
+    .recommend { margin: 0 0 10px; padding: 8px 10px; border-left: 3px solid #7dffa0; background: rgba(125, 255, 160, .06); font-size: 12px; }
+    #route-summary h3 { margin: 12px 0 6px; font-size: 13px; }
+    .concerns { margin: 0; padding-left: 16px; font-size: 12px; }
+    .concerns li { margin-bottom: 4px; }
+
+    /* Rover panel. */
+    .mode-toggle { display: flex; margin-bottom: 10px; }
+    .mode-toggle button { flex: 1; margin: 0; }
+    #rover-panel.is-manual .auto-only, #rover-panel:not(.is-manual) .manual-only { display: none; }
+    .full { width: 100%; margin: 10px 0 0; }
+    .button-row { display: flex; gap: 6px; }
+    .button-row button { margin-top: 10px; white-space: nowrap; }
+    .button-row .primary { flex: 2; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #14100e; font-weight: 600; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .drive-pad {
+      display: grid;
+      grid-template-columns: repeat(3, 44px);
+      grid-template-rows: repeat(2, 36px);
+      gap: 4px;
+      justify-content: center;
+      touch-action: none;
+      user-select: none;
+    }
+    .drive-pad button { margin: 0; padding: 0; }
+    .drive-pad button:active { background: var(--accent); color: #14100e; }
+    .pad-up { grid-column: 2; grid-row: 1; }
+    .pad-left { grid-column: 1; grid-row: 2; }
+    .pad-down { grid-column: 2; grid-row: 2; }
+    .pad-right { grid-column: 3; grid-row: 2; }
+    .rover-row button { margin: 0; flex: 1; }
     .map-toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -68,9 +185,7 @@
     .view-toggle button:disabled { opacity: .45; cursor: not-allowed; }
     .map-hint { color: var(--muted); font-size: 12px; }
     #map-3d { display: none; }
-    #map-wrap.is-3d #map, #map-wrap.is-3d #map-fx { display: none; }
     #map-wrap.is-3d #map-3d { display: block; }
-    #map-wrap:not(.is-3d) .only-3d { display: none; }
     #map-3d canvas {
       display: block;
       width: 100%;
@@ -81,9 +196,8 @@
     #map-3d canvas.on-terrain { cursor: crosshair; }
     .rover-controls { display: flex; gap: 6px; }
     .rover-controls button { margin: 0; padding: 6px 4px; }
-    .rover-controls button.primary { background: var(--accent); border-color: var(--accent); color: #14100e; font-weight: 600; }
-    .rover-controls button[aria-pressed="true"]:not(.primary) { border-color: var(--accent); color: var(--accent); }
-    .rover-controls button:disabled, .rover-row :disabled { opacity: .45; cursor: not-allowed; }
+    #rover-follow[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+    .rover-row :disabled { opacity: .45; cursor: not-allowed; }
     .rover-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
     .rover-row input[type="range"] { flex: 1; min-width: 0; }
     .rover-row select {
@@ -177,7 +291,7 @@
       font-size: 12px;
       pointer-events: none;
     }
-    #map-legend[hidden] { display: none; }
+    #map-legend #map-legend-hazards { display: grid; gap: 6px; }
     .map-legend-row { display: flex; align-items: center; gap: 8px; }
     .map-legend-row .hazard-swatch { margin-right: 0; }
     .map-legend-row span { color: var(--muted); }
@@ -238,15 +352,29 @@
           <button type="button" data-view="3d">3D</button>
           <button type="button" data-view="2d">2D</button>
         </div>
-        <button id="reset-view" class="only-3d" type="button">Reset view</button>
-        <span class="map-hint only-3d">Drag to rotate · right-drag to pan · scroll to zoom</span>
+        <div class="view-toggle" role="group" aria-label="Zoom">
+          <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+          <button id="zoom-out" type="button" aria-label="Zoom out">&minus;</button>
+        </div>
+        <button id="reset-view" type="button">Reset view</button>
+        <span id="map-hint" class="map-hint"></span>
       </div>
       <div id="map-stage">
-        <canvas id="map" width="720" height="540"></canvas>
-        <canvas id="map-fx" width="720" height="540" aria-hidden="true"></canvas>
+        <div id="map-zoom">
+          <canvas id="map" width="720" height="540"></canvas>
+          <canvas id="map-fx" width="720" height="540" aria-hidden="true"></canvas>
+          <div id="rover-2d" hidden aria-hidden="true"></div>
+        </div>
         <div id="map-3d"></div>
-        <div id="rover-2d" hidden aria-hidden="true"></div>
-        <div id="map-legend" hidden></div>
+        <div id="map-legend">
+          <div id="map-legend-hazards"></div>
+          <div id="map-legend-routes"></div>
+        </div>
+        <div id="risk-hud" hidden>
+          <div class="risk-head">Rover risk <strong id="risk-level"></strong></div>
+          <div class="risk-bar"><span id="risk-fill"></span></div>
+          <div id="risk-cause"></div>
+        </div>
       </div>
       <div id="hover-readout"></div>
     </section>
@@ -254,23 +382,35 @@
       <aside id="info-panel">
         <h2>Sample</h2>
         <div id="info-body"></div>
-        <button id="clear-sample" type="button">Clear sample</button>
-      </aside>
-      <aside id="route-panel">
-        <h2>Route</h2>
-        <label class="field">From <select id="route-from"></select></label>
-        <label class="field">To <select id="route-to"></select></label>
-        <div id="route-summary"></div>
+        <div class="button-row">
+          <button id="send-rover" type="button" class="primary" disabled>Send rover here</button>
+          <button id="clear-sample" type="button">Clear</button>
+        </div>
       </aside>
       <aside id="rover-panel">
         <h2>Rover</h2>
-        <div class="rover-controls">
-          <button id="rover-play" type="button" class="primary">Drive</button>
-          <button id="rover-restart" type="button">Restart</button>
-          <button id="rover-follow" type="button" aria-pressed="false">Follow cam</button>
+        <div class="view-toggle mode-toggle" role="group" aria-label="Driving mode">
+          <button id="mode-auto" type="button" aria-pressed="true">Auto</button>
+          <button id="mode-manual" type="button" aria-pressed="false">Manual</button>
+        </div>
+        <div class="auto-only">
+          <div class="rover-controls">
+            <button id="rover-play" type="button" class="primary">Drive</button>
+            <button id="rover-restart" type="button">Restart</button>
+          </div>
+          <input id="rover-progress" class="full" type="range" min="0" max="1000" value="0" aria-label="Rover progress along route">
+        </div>
+        <div class="manual-only">
+          <div class="drive-pad" aria-label="Drive controls">
+            <button type="button" data-drive="up" class="pad-up" aria-label="Forward">&#9650;</button>
+            <button type="button" data-drive="left" class="pad-left" aria-label="Turn left">&#9664;</button>
+            <button type="button" data-drive="down" class="pad-down" aria-label="Reverse">&#9660;</button>
+            <button type="button" data-drive="right" class="pad-right" aria-label="Turn right">&#9654;</button>
+          </div>
+          <p class="hint">Hold the buttons, or use W A S D / arrow keys. Press Auto to plan a route from here.</p>
         </div>
         <div class="rover-row">
-          <input id="rover-progress" type="range" min="0" max="1000" value="0" aria-label="Rover progress along route">
+          <button id="rover-follow" type="button" aria-pressed="false">Follow cam</button>
           <select id="rover-speed" aria-label="Rover speed">
             <option value="0.5">0.5×</option>
             <option value="1" selected>1×</option>
@@ -279,6 +419,15 @@
           </select>
         </div>
         <div id="rover-telemetry"></div>
+      </aside>
+      <aside id="route-panel">
+        <h2>Navigation</h2>
+        <label class="field">Start site <select id="route-from"></select></label>
+        <label class="field">Destination <select id="route-to"></select></label>
+        <label class="check"><input id="route-avoid" type="checkbox" checked> Avoid highlighted hazard zones</label>
+        <p id="route-avoid-note" class="hint"></p>
+        <div id="route-options"></div>
+        <div id="route-summary"></div>
       </aside>
     </div>
   </main>
