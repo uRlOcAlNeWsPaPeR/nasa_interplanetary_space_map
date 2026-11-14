@@ -57,6 +57,13 @@
   var enabled = {};
   var selected = null; // { nx, ny }
   var fieldCache = {}; // key -> { values: Float32Array, min, max }
+  var overlays = []; // extra draw(ctx, W, H) callbacks, e.g. the route from rover.js
+
+  // Hook for other modules to draw on the map (drawn under the site markers).
+  window.MapUI = {
+    addOverlay: function (draw) { overlays.push(draw); },
+    redraw: function () { render(); }
+  };
 
   // ---- sampling the data module into per-pixel fields ------------------------
 
@@ -149,6 +156,7 @@
       }
     }
     ctx.putImageData(image, 0, 0);
+    overlays.forEach(function (draw) { draw(ctx, W, H); });
     drawSites();
     drawSelection();
   }
