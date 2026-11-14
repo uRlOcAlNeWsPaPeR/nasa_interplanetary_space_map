@@ -75,11 +75,22 @@
     .layer-row input { accent-color: var(--accent); }
     .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
     #site-legend { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
-    #info-body dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; }
-    #info-body dt { color: var(--muted); }
-    #info-body dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
-    #info-body .site { margin: 0 0 10px; font-weight: 600; }
-    #info-body .empty { color: var(--muted); margin: 0; }
+    .side { display: grid; gap: 16px; }
+    aside dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; }
+    aside dt { color: var(--muted); }
+    aside dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+    aside .site { margin: 0 0 10px; font-weight: 600; }
+    aside .empty { color: var(--muted); margin: 0; }
+    .field { display: grid; gap: 4px; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
+    .field select {
+      width: 100%;
+      padding: 5px 6px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+    }
     @media (max-width: 820px) {
       main { grid-template-columns: 1fr; }
     }
@@ -99,12 +110,21 @@
       <canvas id="map" width="720" height="540"></canvas>
       <div id="hover-readout"></div>
     </section>
-    <aside id="info-panel">
-      <h2>Sample</h2>
-      <div id="info-body"></div>
-    </aside>
+    <div class="side">
+      <aside id="info-panel">
+        <h2>Sample</h2>
+        <div id="info-body"></div>
+      </aside>
+      <aside id="route-panel">
+        <h2>Route</h2>
+        <label class="field">From <select id="route-from"></select></label>
+        <label class="field">To <select id="route-to"></select></label>
+        <div id="route-summary"></div>
+      </aside>
+    </div>
   </main>
   <script src="mock-data.js"></script>
   <script src="ui.js"></script>
+  <script src="rover.js"></script>
 </body>
 </html>
