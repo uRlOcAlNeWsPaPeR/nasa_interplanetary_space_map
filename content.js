@@ -57,7 +57,7 @@ export const content = {
     },
 
     hints: {
-      firstMove: "Click anywhere on the map to send Ridgeback there. Check the layers first: not every path is safe.",
+      firstMove: "Pick a destination under Navigation, or click the map and press Plan routes here. Then choose the Fastest, Safest or Balanced route and press Start drive.",
       lowPower: "Tip: switch on the Night-time IR layer. Ground that gets coldest at night (dark blue) drains the battery faster.",
       slope: "Tip: the Slope layer shows steep ground. Brighter means steeper.",
       dust: "Tip: a dust storm is coming. Sunlit, flat ground is the best place to wait it out.",
@@ -66,6 +66,9 @@ export const content = {
 
     buttons: {
       go: "Drive here",
+      plan: "Plan routes here",
+      start: "Start drive",
+      again: "Drive it again",
       stop: "Stop",
       recharge: "Wait and recharge",
       reset: "Start over",

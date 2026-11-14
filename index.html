@@ -480,6 +480,16 @@
       </div>
     </details>
 
+    <details id="route-panel" class="card" open>
+      <summary>Navigation</summary>
+      <label class="field">Start site <select id="route-from"></select></label>
+      <label class="field">Destination <select id="route-to"></select></label>
+      <label class="check"><input id="route-avoid" type="checkbox" checked> Avoid highlighted hazard zones</label>
+      <p id="route-avoid-note" class="hint"></p>
+      <div id="route-options"></div>
+      <div id="route-summary"></div>
+    </details>
+
     <details id="rover-panel" class="card" open>
       <summary>Driving</summary>
       <div class="toggle" role="group" aria-label="Driving mode">
@@ -508,15 +518,6 @@
       <div id="rover-telemetry"></div>
     </details>
 
-    <details id="route-panel" class="card" open>
-      <summary>Navigation</summary>
-      <label class="field">Start site <select id="route-from"></select></label>
-      <label class="field">Destination <select id="route-to"></select></label>
-      <label class="check"><input id="route-avoid" type="checkbox" checked> Avoid highlighted hazard zones</label>
-      <p id="route-avoid-note" class="hint"></p>
-      <div id="route-options"></div>
-      <div id="route-summary"></div>
-    </details>
   </div>
 
   <section id="minimap" class="card" aria-label="Minimap">

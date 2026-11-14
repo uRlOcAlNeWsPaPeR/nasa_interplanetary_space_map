@@ -28,15 +28,17 @@
   var GRID_H = 90;
   var ASPECT = canvas.height / canvas.width; // so lengths are in map widths
 
-  // Three ways to weigh distance against hazards. Cost per unit distance is
+  // Three route options for every destination.
+  // Fastest: cost per unit distance is the time it takes there (slopes and
+  // sand slow Ridgeback down, see speedFactor), so it minimises drive time.
+  // Safest / Balanced: cost per unit distance is
   // 1 + hazard * (1 if on hazard ground) + risk * (0-1 terrain risk).
   // "Hazard ground" is the same measure the route comparison reports, so the
-  // safest option really does minimise it. Shortest is straightened into
-  // direct lines wherever nothing blocks them.
+  // safest option really does minimise it.
   var PROFILES = [
-    { key: "safest", name: "Safest", goal: "Minimises overall hazard exposure", hazard: 30, risk: 6, color: "#7dffa0" },
-    { key: "shortest", name: "Shortest", goal: "Minimises distance", hazard: 0, risk: 0, straight: true, color: "#ffffff" },
-    { key: "balanced", name: "Balanced", goal: "Balances distance and safety", hazard: 4, risk: 2, color: "#ffd166" }
+    { key: "fastest", name: "Fastest", goal: "Least drive time: steep ground and sand slow Ridgeback down", time: true, color: "#ffffff" },
+    { key: "safest", name: "Safest", goal: "Lowest overall risk, even if it takes longer", hazard: 30, risk: 6, color: "#7dffa0" },
+    { key: "balanced", name: "Balanced", goal: "A little longer than the fastest, much less risk", hazard: 4, risk: 2, color: "#ffd166" }
   ];
   var AVOID_PENALTY = 200; // extra cost for a cell inside a highlighted hazard zone
   var IMPASSABLE = 5000;   // ground beyond Ridgeback's physical limits
@@ -190,7 +192,9 @@
       var s = t.slope[i], d = t.dust[i];
       var onHazard = s > thrS || d > thrD;
       var risk = Math.min(1, Math.max(s / (2 * thrS), d / (2 * thrD)));
-      var c = 1 + (onHazard ? profile.hazard : 0) + profile.risk * risk;
+      var c = profile.time
+        ? 1 / Math.max(0.05, speedFactor({ slope: s, dustRisk: d }))
+        : 1 + (onHazard ? profile.hazard : 0) + profile.risk * risk;
       if ((limS !== null && s > limS) || (limD !== null && d > limD)) c += AVOID_PENALTY;
       if (s > MAX_SLOPE || d > DEEP_SAND) c += IMPASSABLE; // Ridgeback can't drive there at all
       cost[i] = c;
@@ -428,9 +432,9 @@
           r.sameAs = routes[j].profile.name;
         }
       }
-      if (m.length <= minLen * 1.01) r.pros.push("Shortest distance");
-      else r.cons.push("+" + pct(m.length / minLen - 1) + " distance vs the shortest");
       if (m.time <= minTime * 1.01) r.pros.push("Fastest drive");
+      else r.cons.push("+" + pct(m.time / minTime - 1) + " drive time vs the fastest");
+      if (m.length <= minLen * 1.01) r.pros.push("Shortest distance");
       if (m.hazShare <= minHaz + 0.005) {
         r.pros.push(m.hazShare < 0.005 ? "Stays clear of hazard ground" : "Least hazard exposure");
       } else {
@@ -444,11 +448,11 @@
     });
 
     function by(key) { return routes.filter(function (r) { return r.profile.key === key; })[0]; }
-    var S = by("safest").metrics, B = by("balanced").metrics, H = by("shortest").metrics;
+    var S = by("safest").metrics, B = by("balanced").metrics, F = by("fastest").metrics;
     var pick, reason;
-    if (H.hazShare <= S.hazShare + 0.02 && H.risk <= S.risk + 0.03) {
-      pick = "shortest";
-      reason = "The direct line is about as safe as any detour, so there is no reason to go further.";
+    if (F.hazShare <= S.hazShare + 0.02 && F.risk <= S.risk + 0.03) {
+      pick = "fastest";
+      reason = "The fastest route is about as safe as any detour, so there is no reason to take longer.";
     } else if (B.hazShare > S.hazShare + 0.08 && S.time <= B.time * 1.6) {
       pick = "safest";
       var extra = S.time - B.time;
@@ -579,10 +583,13 @@
     if (scene3d) scene3d.resetTrail();
   }
 
-  function setDestination(d, autoPlay) {
+  // A new destination shows its three routes and waits: driving only starts
+  // when the user presses Start drive.
+  function setDestination(d) {
     dest = d;
+    rover.playing = false;
+    rover.speed = 0;
     plan();
-    if (routes && rover.mode === "auto" && autoPlay) rover.playing = true;
     syncControls();
     renderTelemetry();
   }
@@ -669,10 +676,12 @@
         distText(m.length) + " · " + formatTime(m.time) + " · " +
         pct(m.hazShare) + " hazard · risk " + Math.round(m.risk * 100)));
 
-      var list = el("ul", "route-points");
-      r.pros.forEach(function (t) { list.appendChild(el("li", "pro", t)); });
-      r.cons.forEach(function (t) { list.appendChild(el("li", "con", t)); });
-      card.appendChild(list);
+      if (isSel) {
+        var list = el("ul", "route-points");
+        r.pros.forEach(function (t) { list.appendChild(el("li", "pro", t)); });
+        r.cons.forEach(function (t) { list.appendChild(el("li", "con", t)); });
+        card.appendChild(list);
+      }
       optionsEl.appendChild(card);
     });
 
@@ -806,7 +815,7 @@
     document.getElementById("rb-tag").textContent = t("rover.tagline");
     document.getElementById("rb-reset").textContent = t("rover.buttons.reset");
     document.getElementById("rb-recharge").textContent = t("rover.buttons.recharge");
-    sendBtn.textContent = t("rover.buttons.go");
+    sendBtn.textContent = t("rover.buttons.plan");
     var battery = TEXT && TEXT.rover.stats.battery;
     if (battery) {
       document.getElementById("rb-battery-label").textContent = battery.label;
@@ -822,7 +831,7 @@
       });
     }
     renderRealPower(TEXT && TEXT.realPower);
-    if (!routes) renderRoutes();
+    if (!routes) plan(); // re-word the empty Navigation panel now the text is here
     syncControls();
     renderTelemetry();
   }
@@ -1019,10 +1028,11 @@
     if (mode === "manual") {
       rover.playing = false;
     } else {
-      // Back to automatic: plan from wherever the rover was driven to, and go.
+      // Back to automatic: plan from wherever the rover was driven to, then
+      // wait for the user to pick a route and press Start drive.
       input.up = input.down = input.left = input.right = false;
       plan();
-      rover.playing = !!routes && !rover.arrived && !rover.dead;
+      rover.playing = false;
     }
     syncControls();
     renderTelemetry();
@@ -1039,7 +1049,8 @@
     playBtn.disabled = !has || rover.dead;
     restartBtn.disabled = !has;
     progressInput.disabled = !has || !auto;
-    playBtn.textContent = rover.playing ? t("rover.buttons.stop") : t("rover.buttons.go");
+    playBtn.textContent = rover.playing ? t("rover.buttons.stop")
+      : rover.arrived ? t("rover.buttons.again") : t("rover.buttons.start");
     playBtn.setAttribute("aria-pressed", String(rover.playing));
     progressInput.value = has && rover.total ? String(Math.round(rover.s / rover.total * 1000)) : "0";
     document.getElementById("rb-recharge").disabled = rover.dead || rover.battery >= 99.5;
@@ -1272,11 +1283,12 @@
     var site = sites[toSelect.value];
     var custom = toSelect.querySelector('option[value="custom"]');
     if (custom && toSelect.value !== "custom") custom.remove();
-    setDestination(site ? { nx: site.nx, ny: site.ny, name: site.name } : null, false);
+    setDestination(site ? { nx: site.nx, ny: site.ny, name: site.name } : null);
   });
 
-  // "Drive here": the clicked point (on the ground or the minimap) becomes
-  // the destination, and Ridgeback sets off on the recommended route.
+  // "Plan routes here": the clicked point (on the ground or the minimap)
+  // becomes the destination and its three routes appear. Nothing moves until
+  // the user picks a route and presses Start drive.
   sendBtn.addEventListener("click", function () {
     var p = map.getSelected();
     if (!p) return;
@@ -1285,11 +1297,15 @@
       if (site.nx === p.nx && site.ny === p.ny) siteIdx = i;
     });
     var custom = toSelect.querySelector('option[value="custom"]');
-    setMode("auto");
+    if (rover.mode !== "auto") {
+      rover.mode = "auto";
+      input.up = input.down = input.left = input.right = false;
+    }
+    document.getElementById("route-panel").open = true;
     if (siteIdx >= 0) {
       if (custom) custom.remove();
       toSelect.value = String(siteIdx);
-      setDestination({ nx: p.nx, ny: p.ny, name: sites[siteIdx].name }, !rover.dead);
+      setDestination({ nx: p.nx, ny: p.ny, name: sites[siteIdx].name });
       return;
     }
     if (!custom) {
@@ -1299,7 +1315,7 @@
     }
     custom.textContent = "Clicked point (" + (data.formatLatLon ? latLon(p) : p.nx.toFixed(2) + ", " + p.ny.toFixed(2)) + ")";
     toSelect.value = "custom";
-    setDestination({ nx: p.nx, ny: p.ny, name: custom.textContent }, !rover.dead);
+    setDestination({ nx: p.nx, ny: p.ny, name: custom.textContent });
   });
 
   function replanKeepDriving() {
@@ -1785,7 +1801,7 @@
   // ---- start ----------------------------------------------------------------
 
   fillSelect(fromSelect, firstOfType("landing", 0), "");
-  fillSelect(toSelect, firstOfType("science", 1), "None");
+  fillSelect(toSelect, -1, "None");
   buildRouteLegend();
   map.addOverlay(drawRoutes);
   map.on3dReady(function (api) {
@@ -1796,12 +1812,8 @@
 
   var startSite = sites[fromSelect.value];
   if (startSite) teleport(startSite);
-  // Face the first destination at the start.
-  var destSite = sites[toSelect.value];
-  if (startSite && destSite) {
-    rover.heading = Math.atan2((destSite.ny - startSite.ny) * ASPECT, destSite.nx - startSite.nx);
-  }
-  setDestination(destSite ? { nx: destSite.nx, ny: destSite.ny, name: destSite.name } : null, false);
+  // No destination yet: the map starts clean, with no routes drawn.
+  setDestination(null);
   requestAnimationFrame(loop);
 
   import("./content.js").then(function (mod) {
