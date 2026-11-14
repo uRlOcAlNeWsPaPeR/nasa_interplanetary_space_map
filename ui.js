@@ -3,9 +3,9 @@
  * hazard highlighting.
  *
  * RULE: no terrain data, site names or layer names are hardcoded here.
- * Everything comes from window.MarsData (see mock-data.js for the contract).
- * What lives here is presentation only: colors, labels for the sample
- * fields, units, number formatting and visual effects.
+ * Everything comes from window.MarsData (data-layers.js: real NASA/USGS data
+ * for Jezero crater). What lives here is presentation only: colors, number
+ * formatting, map furniture and visual effects.
  */
 (function () {
   "use strict";
@@ -26,27 +26,35 @@
 
   // ---- presentation config (style, not data) --------------------------------
 
-  // The five fields of sampleTerrainAt(), how to label and format them.
+  // The fields of sampleTerrainAt(), how to format them. Labels and where
+  // each value comes from are read from the data module (getFieldInfo).
   var FIELDS = [
-    { key: "elevation", label: "Elevation", format: function (v) { return Math.round(v) + " m"; } },
-    { key: "slope", label: "Slope", format: percent },
-    { key: "dustRisk", label: "Dust risk", format: percent },
-    { key: "temperature", label: "Temperature", format: function (v) { return v.toFixed(1) + " °C"; } },
-    { key: "mineralIndex", label: "Mineral index", format: function (v) { return v.toFixed(2); } }
-  ];
+    { key: "elevation", label: "Elevation", format: function (v) { return isFinite(v) ? Math.round(v).toLocaleString() + " m" : "no data"; } },
+    { key: "slope", label: "Slope", format: slopeText },
+    { key: "dustRisk", label: "Mapped sand", format: percent },
+    { key: "nightIR", label: "Night-time IR", format: function (v) { return isFinite(v) ? v.toFixed(2) + " (relative)" : "no data"; } },
+    { key: "geology", label: "Geologic unit", format: unitText }
+  ].map(function (field) {
+    var info = data.getFieldInfo ? data.getFieldInfo(field.key) : null;
+    if (info) { field.label = info.label; field.info = info; }
+    return field;
+  });
 
-  // Which sample field a layer draws, picked by keyword in the layer's name,
-  // so a renamed or new layer from the data module still gets a sensible ramp.
-  var LAYER_STYLES = [
-    { match: /elev|topo|mola/i, key: "elevation", ramp: [[38, 22, 18], [150, 78, 46], [240, 214, 176]] },
-    { match: /therm|temp|themis/i, key: "temperature", ramp: [[40, 70, 190], [235, 225, 215], [220, 50, 40]] },
-    { match: /mineral|crism|spectral/i, key: "mineralIndex", ramp: [[30, 30, 40], [40, 150, 140], [190, 255, 190]] },
-    { match: /dust/i, key: "dustRisk", ramp: [[60, 50, 45], [200, 150, 80], [255, 230, 150]] },
-    { match: /slope/i, key: "slope", ramp: [[25, 25, 30], [150, 90, 170], [255, 220, 255]] }
-  ];
+  // Colour ramps per data field (presentation). The layer -> field mapping
+  // and categories come from data.getLayerInfo().
+  var FIELD_STYLES = {
+    image: { ramp: [[6, 6, 6], [252, 248, 242]], fixedRange: [0, 255] },
+    elevation: { ramp: [[38, 22, 18], [150, 78, 46], [240, 214, 176]] },
+    nightIR: { ramp: [[40, 70, 190], [235, 225, 215], [220, 50, 40]] },
+    slope: { ramp: [[25, 25, 30], [150, 90, 170], [255, 220, 255]] },
+    dustRisk: { ramp: [[60, 50, 45], [200, 150, 80], [255, 230, 150]] }
+  };
   var FALLBACK_STYLE = { key: "elevation", ramp: [[30, 30, 30], [140, 140, 140], [240, 240, 240]] };
+  var TRAVERSE_COLOR = "#7ff0e6";   // Perseverance's real path
+  var NEAR_STOP_KM = 2;             // offer rover images if a real stop is this close
 
   var SITE_COLORS = { landing: "#5fd08a", science: "#5bb4f0", hazard: "#f06a5b" };
+  var SITE_TYPE_NAMES = { landing: "Landing site", science: "Perseverance stop (real position)", hazard: "Hazard site" };
   var SITE_FALLBACK_COLOR = "#ffffff";
   var SITE_SNAP_RADIUS = 0.035; // normalized distance for "you clicked a site"
 
@@ -56,7 +64,7 @@
   // Colors are chosen to stand out from the red-brown terrain.
   var HAZARDS = [
     { key: "slope", color: [236, 72, 255], pattern: "hatch", patternName: "hatched" },          // magenta
-    { key: "dustRisk", color: [40, 215, 255], pattern: "particles", patternName: "drifting dust" } // cyan
+    { key: "dustRisk", color: [40, 215, 255], pattern: "particles", patternName: "drifting sand" } // cyan
   ];
   var HAZARD_SMOOTH_RADIUS = 3;  // px; smooths zone edges so they don't speckle
   var HAZARD_EDGE = 2;           // px width of the colored zone border
@@ -71,7 +79,23 @@
   var DUST_LIFE = { min: 70, max: 160 }; // frames
 
   function percent(v) {
-    return Math.round(v * 100) + "%";
+    return isFinite(v) ? Math.round(v * 100) + "%" : "no data";
+  }
+
+  // Slope is rise/run; show it as a grade and in degrees.
+  function slopeText(v) {
+    return isFinite(v) ? Math.round(v * 100) + "% (" + Math.round(Math.atan(v) * 180 / Math.PI) + "°)" : "no data";
+  }
+
+  function unitText(v) {
+    var unit = data.getUnit ? data.getUnit(v) : null;
+    return unit ? unit.name + " (" + unit.symbol + ")" : "unmapped";
+  }
+
+  function latLonText(nx, ny) {
+    if (!data.toLatLon) return nx.toFixed(3) + ", " + ny.toFixed(3);
+    var ll = data.toLatLon(nx, ny);
+    return data.formatLatLon(ll.lat, ll.lon);
   }
 
   function css(rgb, alpha) {
@@ -135,10 +159,37 @@
   // ---- sampling the data module into per-pixel fields ------------------------
 
   function styleFor(layerName) {
-    for (var i = 0; i < LAYER_STYLES.length; i++) {
-      if (LAYER_STYLES[i].match.test(layerName)) return LAYER_STYLES[i];
+    var info = data.getLayerInfo ? data.getLayerInfo(layerName) : null;
+    if (!info) return FALLBACK_STYLE;
+    if (info.categorical) {
+      return { key: info.field, palette: [[BASE_GRAY, BASE_GRAY, BASE_GRAY]].concat(
+        data.getUnits().map(function (u) { return u.color; })) };
     }
-    return FALLBACK_STYLE;
+    var style = FIELD_STYLES[info.field] || FALLBACK_STYLE;
+    return { key: info.field, ramp: style.ramp, fixedRange: style.fixedRange };
+  }
+
+  // The CTX image arrives asynchronously; until then the layer draws as
+  // gray and its row in the layer panel says so.
+  var ctxImage = { state: "idle", message: "" };
+  function imageField() {
+    if (ctxImage.state === "idle" && data.loadImageField) {
+      ctxImage.state = "loading";
+      data.loadImageField(W, H).then(function (values) {
+        ctxImage.state = "ready";
+        fieldCache.image = { values: values, min: 0, max: 255 };
+        updateLayerStatus();
+        render();
+      }, function (err) {
+        ctxImage.state = "error";
+        ctxImage.message = err.message;
+        updateLayerStatus();
+      });
+      updateLayerStatus();
+    }
+    var empty = new Float32Array(W * H);
+    empty.fill(NaN);
+    return { values: empty, min: 0, max: 255 };
   }
 
   function withRange(values) {
@@ -153,6 +204,7 @@
 
   function getField(key) {
     if (fieldCache[key]) return fieldCache[key];
+    if (key === "image") return imageField();
     var values;
     if (key === "elevation") {
       values = data.getElevationGrid(W, H);
@@ -268,8 +320,19 @@
 
         for (var k = 0; k < drawn.length; k++) {
           var f = drawn[k].field;
-          var t = (f.values[i] - f.min) / (f.max - f.min || 1);
-          rampColor(drawn[k].style.ramp, t, rgb);
+          var st = drawn[k].style;
+          var v = f.values[i];
+          if (!isFinite(v)) {
+            rgb[0] = rgb[1] = rgb[2] = BASE_GRAY; // no data here
+          } else if (st.palette) {
+            var col = st.palette[v] || st.palette[0];
+            rgb[0] = col[0]; rgb[1] = col[1]; rgb[2] = col[2];
+          } else {
+            var lo = st.fixedRange ? st.fixedRange[0] : f.min;
+            var hi = st.fixedRange ? st.fixedRange[1] : f.max;
+            var t = Math.min(1, Math.max(0, (v - lo) / (hi - lo || 1)));
+            rampColor(st.ramp, t, rgb);
+          }
           var w = drawn[k].weight;
           r += rgb[0] * w; g += rgb[1] * w; b += rgb[2] * w;
         }
@@ -323,9 +386,12 @@
     ctx.putImageData(image, 0, 0);
     // The 3D ground gets terrain + hazards only; labels and routes are 3D objects there.
     if (world) world.updateGround(canvas);
+    drawTraverse();
     overlays.forEach(function (draw) { draw(ctx, W, H); });
+    drawMapLabels();
     drawSites();
     drawSelection();
+    drawMapFurniture();
 
     var dustZone = zones.filter(function (zone) { return zone.hz.pattern === "particles"; })[0];
     setDustZone(dustZone || null);
@@ -355,6 +421,87 @@
       ctx.fillStyle = "#ffffff";
       ctx.fillText(site.name, lx, y);
     });
+  }
+
+  // Perseverance's real path (NASA waypoints), a thin teal line.
+  var traverse = data.getTraverse ? data.getTraverse() : [];
+  function drawTraverse() {
+    if (traverse.length < 2) return;
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    [[4, "rgba(10,20,26,.75)"], [1.8, TRAVERSE_COLOR]].forEach(function (pass) {
+      ctx.lineWidth = pass[0];
+      ctx.strokeStyle = pass[1];
+      ctx.beginPath();
+      traverse.forEach(function (p, i) {
+        var x = p.nx * (W - 1), y = p.ny * (H - 1);
+        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      });
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // Place names where the USGS geologic map labels them.
+  function drawMapLabels() {
+    var feats = data.getGeologyFeatures ? data.getGeologyFeatures() : null;
+    if (!feats) return;
+    ctx.save();
+    ctx.font = "italic 13px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    feats.labels.forEach(function (l) {
+      var x = l.nx * (W - 1), y = l.ny * (H - 1);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(20,16,14,.8)";
+      ctx.strokeText(l.name, x, y);
+      ctx.fillStyle = "#f3e7d8";
+      ctx.fillText(l.name, x, y);
+    });
+    ctx.restore();
+  }
+
+  // North arrow, a km scale bar and lat/lon at the corners: the map is a
+  // real place, north up, evenly spaced in latitude and longitude.
+  function drawMapFurniture() {
+    var scale = data.getScale ? data.getScale() : null;
+    var b = data.getBounds ? data.getBounds() : null;
+    if (!scale || !b) return;
+    ctx.save();
+    ctx.font = "600 12px system-ui, sans-serif";
+    ctx.textBaseline = "alphabetic";
+    function halo(text, x, y, align) {
+      ctx.textAlign = align;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(10,14,18,.85)";
+      ctx.strokeText(text, x, y);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(text, x, y);
+    }
+    // Scale bar: the largest of 1/2/5/10 km that fits in a quarter of the width.
+    var pxPerKm = (W - 1) / scale.widthKm;
+    var km = [10, 5, 2, 1].filter(function (k) { return k * pxPerKm <= W * 0.28; })[0] || 1;
+    var len = km * pxPerKm, x0 = 14, y0 = H - 16;
+    ctx.fillStyle = "rgba(10,14,18,.85)";
+    ctx.fillRect(x0 - 2, y0 - 5, len + 4, 9);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(x0, y0 - 3, len / 2, 5);
+    ctx.fillStyle = "#9aa7b0";
+    ctx.fillRect(x0 + len / 2, y0 - 3, len / 2, 5);
+    halo(km + " km", x0 + len + 8, y0 + 4, "left");
+    // North arrow, top right.
+    var nx0 = W - 22, ny0 = 34;
+    ctx.beginPath();
+    ctx.moveTo(nx0, ny0 - 18); ctx.lineTo(nx0 + 7, ny0); ctx.lineTo(nx0, ny0 - 5); ctx.lineTo(nx0 - 7, ny0); ctx.closePath();
+    ctx.fillStyle = "#ffffff"; ctx.strokeStyle = "rgba(10,14,18,.85)"; ctx.lineWidth = 2;
+    ctx.stroke(); ctx.fill();
+    halo("N", nx0, ny0 + 14, "center");
+    // Corner coordinates.
+    ctx.font = "11px system-ui, sans-serif";
+    halo(b.north.toFixed(3) + "°N  " + b.west.toFixed(3) + "°E", 8, 16, "left");
+    halo(b.south.toFixed(3) + "°N  " + b.east.toFixed(3) + "°E", W - 8, H - 30, "right");
+    ctx.restore();
   }
 
   function drawSelection() {
@@ -496,6 +643,38 @@
       row.appendChild(text);
       mapLegend.appendChild(row);
     });
+    if (traverse.length) {
+      var row = document.createElement("div");
+      row.className = "map-legend-row";
+      var line = document.createElement("span");
+      line.className = "route-line";
+      line.style.setProperty("--rc", TRAVERSE_COLOR);
+      row.appendChild(line);
+      var text = document.createElement("span");
+      var name = document.createElement("strong");
+      name.textContent = "Perseverance's path";
+      text.appendChild(name);
+      text.appendChild(document.createTextNode(" · real, from NASA waypoints"));
+      row.appendChild(text);
+      mapLegend.appendChild(row);
+    }
+    if (world) {
+      var vrow = document.createElement("div");
+      vrow.className = "map-legend-row";
+      vrow.appendChild(Object.assign(document.createElement("span"), { className: "legend-view" }));
+      var vtext = document.createElement("span");
+      vtext.textContent = "Where the 3D view is looking";
+      vrow.appendChild(vtext);
+      mapLegend.appendChild(vrow);
+    }
+  }
+
+  // "loading" / "unavailable" next to the CTX image layer.
+  function updateLayerStatus() {
+    var el = document.getElementById("layer-status-image");
+    if (!el) return;
+    el.textContent = ctxImage.state === "loading" ? "loading…" : ctxImage.state === "error" ? "unavailable" : "";
+    el.title = ctxImage.state === "error" ? ctxImage.message : "";
   }
 
   function buildLayerPanel() {
@@ -515,6 +694,20 @@
       });
       label.appendChild(box);
       label.appendChild(document.createTextNode(name));
+      var info = data.getLayerInfo ? data.getLayerInfo(name) : null;
+      if (info) {
+        label.title = info.description;
+        var kind = document.createElement("span");
+        kind.className = "kind kind--" + info.kind;
+        kind.textContent = info.kind;
+        label.appendChild(kind);
+        if (info.field === "image") {
+          var status = document.createElement("span");
+          status.id = "layer-status-image";
+          status.className = "layer-status";
+          label.appendChild(status);
+        }
+      }
       var slider = makeSlider(name + " opacity");
       slider.addEventListener("input", function () {
         opacity[name] = slider.value / 100;
@@ -524,6 +717,7 @@
       row.appendChild(slider);
       layerList.appendChild(row);
     });
+    updateLayerStatus();
   }
 
   function makeSlider(ariaLabel) {
@@ -591,7 +785,7 @@
       dot.className = "swatch";
       dot.style.background = SITE_COLORS[site.type] || SITE_FALLBACK_COLOR;
       row.appendChild(dot);
-      row.appendChild(document.createTextNode(site.type + " site"));
+      row.appendChild(document.createTextNode(SITE_TYPE_NAMES[site.type] || site.type + " site"));
       siteLegend.appendChild(row);
     });
   }
@@ -609,10 +803,16 @@
   function showInfo() {
     infoBody.textContent = "";
     sendRoverBtn.disabled = !selected;
+    if (!data.ok) {
+      var err = document.createElement("p");
+      err.className = "error";
+      err.textContent = data.error + " Map values are blank until it loads.";
+      infoBody.appendChild(err);
+    }
     if (!selected) {
       var hint = document.createElement("p");
       hint.className = "empty";
-      hint.textContent = "Click the map to sample a location.";
+      hint.textContent = "Click the map or the ground to sample a location.";
       infoBody.appendChild(hint);
       return;
     }
@@ -621,24 +821,130 @@
     if (site) {
       var title = document.createElement("p");
       title.className = "site";
-      title.textContent = site.name + " · " + site.type;
+      title.textContent = site.name;
       infoBody.appendChild(title);
+      if (site.note) {
+        var note = document.createElement("p");
+        note.className = "hint";
+        note.textContent = site.note;
+        infoBody.appendChild(note);
+      }
     }
     var list = document.createElement("dl");
-    addRow(list, "Position", selected.nx.toFixed(3) + ", " + selected.ny.toFixed(3));
+    addRow(list, "Position", latLonText(selected.nx, selected.ny));
     FIELDS.forEach(function (field) {
       var value = sample[field.key];
-      addRow(list, field.label, field.format(value), hazardFor(field.key), isOver(field.key, value));
+      addRow(list, field.label, field.format(value), hazardFor(field.key), isOver(field.key, value), field.info);
     });
     infoBody.appendChild(list);
+    showRoverShots();
+  }
+
+  // ---- Perseverance's own images of the selected spot (NASA, live) -----------
+
+  var CAMERA_NAMES = {
+    NAVCAM_LEFT: "Navcam", MCZ_LEFT: "Mastcam-Z", MCZ_RIGHT: "Mastcam-Z",
+    FRONT_HAZCAM_LEFT_A: "Front Hazcam", REAR_HAZCAM_LEFT: "Rear Hazcam"
+  };
+  var roverShots = {}; // sol -> { state: "loading" | "done" | "error", result, message }
+
+  function loadShots(sol) {
+    roverShots[sol] = { state: "loading" };
+    showInfo();
+    data.fetchRoverImages(sol).then(function (result) {
+      roverShots[sol] = { state: "done", result: result };
+      if (selected) showInfo();
+    }, function (err) {
+      roverShots[sol] = { state: "error", message: err.message };
+      if (selected) showInfo();
+    });
+  }
+
+  function showRoverShots() {
+    if (!data.nearestWaypoint || !data.fetchRoverImages) return;
+    var stop = data.nearestWaypoint(selected.nx, selected.ny);
+    if (!stop) return;
+    var box = document.createElement("div");
+    box.className = "shots";
+    var head = document.createElement("h3");
+    head.textContent = "Perseverance's view";
+    box.appendChild(head);
+    var away = stop.distanceKm < 1 ? Math.round(stop.distanceKm * 1000) + " m" : stop.distanceKm.toFixed(1) + " km";
+    var where = document.createElement("p");
+    where.className = "hint";
+    where.textContent = "Nearest real Perseverance stop: sol " + stop.sol + ", " + away + " away.";
+    box.appendChild(where);
+    infoBody.appendChild(box);
+    if (stop.distanceKm > NEAR_STOP_KM) {
+      where.textContent += " Too far for its images to show this spot.";
+      return;
+    }
+    var state = roverShots[stop.sol];
+    var status = document.createElement("p");
+    status.className = "hint";
+    if (!state || state.state === "error") {
+      if (state) {
+        status.className = "error";
+        status.textContent = "Couldn't load images: " + state.message;
+        box.appendChild(status);
+      }
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "full";
+      btn.textContent = state ? "Try again" : "Show NASA images from sol " + stop.sol;
+      btn.addEventListener("click", function () { loadShots(stop.sol); });
+      box.appendChild(btn);
+      return;
+    }
+    if (state.state === "loading") {
+      status.textContent = "Loading images from NASA…";
+      box.appendChild(status);
+      return;
+    }
+    var images = state.result.images;
+    if (!images.length) {
+      status.textContent = "NASA lists no full-frame images from these cameras on sol " + stop.sol + ".";
+      box.appendChild(status);
+      return;
+    }
+    var grid = document.createElement("div");
+    grid.className = "shot-grid";
+    images.forEach(function (im) {
+      var a = document.createElement("a");
+      a.href = im.link;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.title = im.id + (im.date ? " · " + im.date.slice(0, 10) : "");
+      var img = document.createElement("img");
+      img.src = im.thumb;
+      img.alt = (CAMERA_NAMES[im.camera] || im.camera) + " image, sol " + stop.sol;
+      img.loading = "lazy";
+      img.onerror = function () { a.classList.add("is-broken"); };
+      var cap = document.createElement("span");
+      cap.textContent = CAMERA_NAMES[im.camera] || im.camera;
+      a.appendChild(img);
+      a.appendChild(cap);
+      grid.appendChild(a);
+    });
+    box.appendChild(grid);
+    status.textContent = "Raw images, NASA/JPL-Caltech. Select one to open it on NASA's site.";
+    box.appendChild(status);
   }
 
   // Shared with rover.js through the same markup: a hazard row gets the
   // hazard's swatch, and a value over the active limit is shown in its color.
-  function addRow(list, label, value, hz, over) {
+  // `info` (optional) says where the value comes from.
+  function addRow(list, label, value, hz, over, info) {
     var dt = document.createElement("dt");
     if (hz) dt.appendChild(makeSwatch(hz));
     dt.appendChild(document.createTextNode(label));
+    if (info) {
+      var kind = document.createElement("span");
+      kind.className = "kind kind--" + info.kind;
+      kind.textContent = info.kind;
+      dt.appendChild(kind);
+      dt.title = info.sourceTitle + (info.method ? ". " + info.method : "");
+    }
     var dd = document.createElement("dd");
     dd.textContent = value;
     if (hz && over) {
@@ -682,10 +988,10 @@
       return;
     }
     var sample = data.sampleTerrainAt(p.nx, p.ny);
-    hoverReadout.textContent = FIELDS.map(function (field) {
+    hoverReadout.textContent = [latLonText(p.nx, p.ny)].concat(FIELDS.map(function (field) {
       var over = isOver(field.key, sample[field.key]) ? " ▲" : "";
       return field.label + " " + field.format(sample[field.key]) + over;
-    }).join("  ·  ");
+    })).join("  ·  ");
   }
 
   canvas.addEventListener("click", function (event) {
@@ -826,6 +1132,13 @@
     function heightOf(e) {
       return (e - range.min) / (range.max - range.min || 1) * HEIGHT_SCALE;
     }
+    // Heights are stretched so relief reads at this scale; say by how much.
+    var scale = data.getScale ? data.getScale() : null;
+    if (scale && range.max > range.min) {
+      var horizontal = WORLD_W / (scale.widthKm * 1000);       // world units per metre across
+      var vertical = HEIGHT_SCALE / (range.max - range.min);   // world units per metre up
+      window.MapUI.verticalExaggeration = vertical / horizontal;
+    }
     var pos = geom.attributes.position;
     // Small per-vertex brightness changes give close-up grain the 720px
     // texture can't (purely visual, the same trick Ridgeback uses).
@@ -929,6 +1242,14 @@
       scene.add(label);
     });
 
+    // Perseverance's real path, draped just above the ground.
+    if (traverse.length > 1) {
+      var pathCurve = new T.CatmullRomCurve3(traverse.map(function (p) { return surfacePoint(p.nx, p.ny, 0.35); }));
+      var pathTube = new T.Mesh(new T.TubeGeometry(pathCurve, traverse.length * 3, 0.1, 6, false),
+        new T.MeshBasicMaterial({ color: TRAVERSE_COLOR, transparent: true, opacity: 0.7 }));
+      scene.add(pathTube);
+    }
+
     // Inspect marker: where the user last clicked.
     var marker = new T.Group();
     var markRing = new T.Mesh(new T.RingGeometry(1.6, 2.1, 40),
@@ -951,6 +1272,21 @@
       raycaster.setFromCamera(ndc, camera);
       var hit = raycaster.intersectObject(ground)[0];
       return hit && hit.uv ? { nx: hit.uv.x, ny: 1 - hit.uv.y } : null;
+    }
+
+    // Minimap wedge: where the 3D camera stands and which way it looks.
+    var viewEl = document.getElementById("view-2d");
+    var camDir = new T.Vector3();
+    function updateViewWedge() {
+      if (!viewEl) return;
+      var p = { nx: camera.position.x / WORLD_W + 0.5, ny: camera.position.z / WORLD_D + 0.5 };
+      var inside = p.nx >= 0 && p.nx <= 1 && p.ny >= 0 && p.ny <= 1;
+      viewEl.hidden = !inside;
+      if (!inside) return;
+      camera.getWorldDirection(camDir);
+      viewEl.style.left = (p.nx * 100) + "%";
+      viewEl.style.top = (p.ny * 100) + "%";
+      viewEl.style.transform = "translateY(-50%) rotate(" + Math.atan2(camDir.z, camDir.x) + "rad)";
     }
 
     var downAt = null;
@@ -1001,6 +1337,7 @@
         marker.visible = false;
       }
       frameCallbacks.forEach(function (cb) { cb(dt); });
+      updateViewWedge();
       if (dirty) {
         texture.needsUpdate = true;
         dirty = false;
@@ -1050,6 +1387,79 @@
     }
   }
 
+  // ---- data & sources panel -------------------------------------------------------
+  //
+  // Says where everything on screen comes from, and what is simulated.
+
+  function buildSourcesPanel() {
+    var box = document.getElementById("data-sources");
+    if (!box) return;
+    box.textContent = "";
+    function p(text, cls) {
+      var el = document.createElement("p");
+      if (cls) el.className = cls;
+      el.textContent = text;
+      box.appendChild(el);
+      return el;
+    }
+    function h(text) {
+      var el = document.createElement("h3");
+      el.textContent = text;
+      box.appendChild(el);
+    }
+    if (!data.ok) {
+      p(data.error, "error");
+      return;
+    }
+    var b = data.getBounds(), s = data.getScale();
+    p(data.datasetName + ": " + b.south.toFixed(3) + "–" + b.north.toFixed(3) + "°N, " +
+      b.west.toFixed(3) + "–" + b.east.toFixed(3) + "°E, " + s.widthKm.toFixed(1) + " × " + s.heightKm.toFixed(1) + " km. North is up.");
+
+    h("What's real and what's simulated");
+    var ul = document.createElement("ul");
+    ul.className = "provenance";
+    var ve = window.MapUI.verticalExaggeration;
+    [
+      ["observed", "Observed", "Terrain shape and height, the CTX image, THEMIS night IR, USGS geologic units and mapped sand, Perseverance's path and stops, and rover images."],
+      ["computed", "Computed", "Slope (from the elevation model), the ground-risk meter, hazard zones above your limits, and the route options."],
+      ["simulated", "Simulated", "Ridgeback is a fictional rover: its driving, battery, tilt limit and getting stuck in sand are game rules, not NASA ratings. The drifting dust is decoration." +
+        (ve ? " In 3D, heights are exaggerated about " + ve.toFixed(1) + "×." : "")]
+    ].forEach(function (row) {
+      var li = document.createElement("li");
+      var tag = document.createElement("span");
+      tag.className = "kind kind--" + row[0];
+      tag.textContent = row[1];
+      li.appendChild(tag);
+      li.appendChild(document.createTextNode(" " + row[2]));
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+
+    var checks = data.getChecks();
+    if (checks && checks.waypointElevation) {
+      var c = checks.waypointElevation;
+      h("Accuracy check");
+      p("At " + c.waypoints + " Perseverance stops, the elevation model and the rover's own measured height differ by " +
+        c.medianAbsDiffM + " m (median), " + c.p90AbsDiffM + " m for 9 in 10 stops.");
+    }
+
+    h("Sources");
+    var list = document.createElement("ul");
+    list.className = "sources";
+    data.getSources().forEach(function (src) {
+      var li = document.createElement("li");
+      var a = document.createElement("a");
+      a.href = src.url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = src.title;
+      li.appendChild(a);
+      li.appendChild(document.createTextNode(". " + src.what + ". " + src.credit + "."));
+      list.appendChild(li);
+    });
+    box.appendChild(list);
+  }
+
   // ---- minimap controls --------------------------------------------------------
 
   var minimapEl = document.getElementById("minimap");
@@ -1092,6 +1502,7 @@
     worldEl.classList.add("no-3d");
     worldEl.textContent = "The 3D view needs WebGL and the three.js script (an internet connection). The map still works.";
   }
+  buildSourcesPanel();
   render();
   showInfo();
   // Prepare the hazard fields after first paint, so the first slider drag

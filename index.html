@@ -229,6 +229,39 @@
     }
     .legend-dest { width: 12px; height: 12px; flex: none; border: 2px solid #e0a800; border-radius: 50%; }
 
+    /* ---- data provenance: observed / computed / simulated ---- */
+    .kind {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 0 5px;
+      font-size: 9px;
+      line-height: 1.45;
+      letter-spacing: .03em;
+      border: 1px solid currentColor;
+      border-radius: 4px;
+      vertical-align: 1px;
+      white-space: nowrap;
+    }
+    .kind--observed { color: var(--ok); }
+    .kind--computed { color: var(--accent); }
+    .kind--simulated { color: var(--warn); }
+    .layer-status { margin-left: 6px; font-size: 11px; color: var(--muted); }
+    .error { margin: 0 0 8px; color: var(--bad); font-size: 12px; }
+    #data-sources { font-size: 12px; }
+    #data-sources p { margin: 0 0 8px; }
+    #data-sources h3 { margin: 10px 0 6px; font-size: 12px; }
+    .provenance, .sources { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 6px; }
+    .provenance .kind { margin: 0 4px 0 0; }
+    .sources a { color: var(--accent); }
+
+    /* ---- Perseverance images in the Inspect panel ---- */
+    .shots { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+    .shots h3 { margin: 0 0 4px; }
+    .shot-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 6px 0; }
+    .shot-grid a { display: grid; gap: 2px; color: var(--muted); font-size: 10px; text-decoration: none; }
+    .shot-grid img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 4px; background: var(--line); }
+    .shot-grid a.is-broken img { visibility: hidden; }
+
     /* ---- live risk indicator ---- */
     #risk-hud {
       position: fixed;
@@ -320,6 +353,20 @@
       filter: drop-shadow(0 0 2px #000) drop-shadow(0 0 1px #000);
     }
     #rover-2d[hidden] { display: none; }
+    /* Where the 3D camera stands and looks (drawn by ui.js). */
+    #view-2d, .legend-view {
+      background: linear-gradient(90deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, .08));
+      clip-path: polygon(0 50%, 100% 0, 100% 100%);
+    }
+    #view-2d {
+      position: absolute;
+      width: 46px;
+      height: 34px;
+      pointer-events: none;
+      transform-origin: 0 50%;
+    }
+    #view-2d[hidden] { display: none; }
+    .legend-view { width: 16px; height: 12px; flex: none; outline: 1px solid rgba(0, 0, 0, .35); }
     #hover-readout {
       margin-top: 4px;
       min-height: 1.45em;
@@ -408,6 +455,11 @@
         <div id="site-legend"></div>
       </div>
     </details>
+
+    <details id="data-panel" class="card">
+      <summary>Data &amp; sources</summary>
+      <div id="data-sources"></div>
+    </details>
   </div>
 
   <div id="risk-hud" hidden>
@@ -479,6 +531,7 @@
       <div id="map-zoom">
         <canvas id="map" width="720" height="540"></canvas>
         <canvas id="map-fx" width="720" height="540" aria-hidden="true"></canvas>
+        <div id="view-2d" hidden aria-hidden="true"></div>
         <div id="rover-2d" hidden aria-hidden="true"></div>
       </div>
     </div>
@@ -500,7 +553,10 @@
     });
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="mock-data.js"></script>
+  <!-- Real NASA/USGS data for Jezero crater (built by tools/build_jezero_data.py) -->
+  <script src="data/jezero/jezero-data.js"></script>
+  <script src="terrain.js"></script>
+  <script src="data-layers.js"></script>
   <script src="ui.js"></script>
   <script src="rover.js"></script>
 </body>
