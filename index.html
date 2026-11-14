@@ -353,6 +353,33 @@
       filter: drop-shadow(0 0 2px #000) drop-shadow(0 0 1px #000);
     }
     #rover-2d[hidden] { display: none; }
+    /* The astronaut on foot (drawn by walk.js). */
+    #walker-2d {
+      position: absolute;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 2px solid #14100e;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    #walker-2d[hidden] { display: none; }
+    .walk-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+    .walk-legend[hidden] { display: none; }
+    .walk-legend span::before {
+      content: "";
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      margin-right: 6px;
+      border-radius: 2px;
+      vertical-align: -1px;
+      background: var(--swatch);
+    }
+    #walk-stats { margin-bottom: 8px; }
+    #walk-stats:empty { display: none; }
+    .walk-limits { font-size: 11px; margin-top: 8px; }
     /* Where the 3D camera stands and looks (drawn by ui.js). */
     #view-2d, .legend-view {
       background: linear-gradient(90deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, .08));
@@ -476,6 +503,7 @@
       <div id="info-body"></div>
       <div class="button-row">
         <button id="send-rover" type="button" class="primary" disabled></button>
+        <button id="walk-here" type="button" disabled></button>
         <button id="clear-sample" type="button">Clear</button>
       </div>
     </details>
@@ -518,6 +546,22 @@
       <div id="rover-telemetry"></div>
     </details>
 
+    <!-- Astronaut walk planner (walk.js); wording from content.js -->
+    <details id="walk-panel" class="card" open>
+      <summary>Walk</summary>
+      <p id="walk-intro" class="hint"></p>
+      <label class="check"><input id="walk-range" type="checkbox"> <span id="walk-range-label"></span></label>
+      <div id="walk-legend" class="walk-legend" hidden></div>
+      <label class="field"><span id="walk-site-label"></span><select id="walk-site"></select></label>
+      <p id="walk-status" class="hint" aria-live="polite"></p>
+      <dl id="walk-stats"></dl>
+      <div class="button-row">
+        <button id="walk-start" type="button" class="primary" disabled></button>
+        <button id="walk-clear" type="button" disabled></button>
+      </div>
+      <p id="walk-limits" class="hint walk-limits"></p>
+    </details>
+
   </div>
 
   <section id="minimap" class="card" aria-label="Minimap">
@@ -534,6 +578,7 @@
         <canvas id="map-fx" width="720" height="540" aria-hidden="true"></canvas>
         <div id="view-2d" hidden aria-hidden="true"></div>
         <div id="rover-2d" hidden aria-hidden="true"></div>
+        <div id="walker-2d" hidden aria-hidden="true"></div>
       </div>
     </div>
     <div id="hover-readout"></div>
@@ -560,5 +605,7 @@
   <script src="data-layers.js"></script>
   <script src="ui.js"></script>
   <script src="rover.js"></script>
+  <script src="walk-core.js"></script>
+  <script src="walk.js"></script>
 </body>
 </html>

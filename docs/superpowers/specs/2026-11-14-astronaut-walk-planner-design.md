@@ -1,6 +1,6 @@
 # Astronaut walk planner: design
 
-Date: 2026-11-14. Status: waiting for approval.
+Date: 2026-11-14. Status: approved and built.
 
 ## Why
 
@@ -9,7 +9,7 @@ The Space Apps brief is about planning a Marswalk for astronauts. Today the app 
 ## What the user sees
 
 1. Ridgeback is stopped (at the start site, or after a drive).
-2. A new **Walk** card (right side, under Navigation) has a **Show walking range** switch. When on, the minimap and the 3D ground shade the area around Ridgeback:
+2. A new **Walk** card (right side, below Driving, so the drive controls stay where they were) has a **Show walking range** switch. When on, the minimap and the 3D ground shade the area around Ridgeback:
    - green: the round trip fits easily in the EVA plan;
    - yellow: it fits, but only just;
    - no shading: out of reach.

@@ -156,4 +156,61 @@ export const content = {
     ],
     sourceLabel: "Source",
   },
+
+  // Astronaut walk planner (walk.js). The numbers come from walk-core.js
+  // (NASA's Artemis suit planning figures); walk.js fills in the {placeholders}.
+  walk: {
+    intro: "Park Ridgeback, then plan a walk on foot: where you can go and still get back before the suit runs low.",
+    showRange: "Show walking range",
+    siteTime: "Time at the site",
+    siteOptions: [
+      { hours: 0.5, label: "30 min" },
+      { hours: 1, label: "1 hour" },
+      { hours: 2, label: "2 hours" },
+    ],
+    legend: {
+      easy: "Easy round trip",
+      tight: "Fits, but only just",
+    },
+    buttons: {
+      here: "Walk here",
+      start: "Start walk",
+      stop: "Stop walk",
+      clear: "Clear walk",
+    },
+    status: {
+      moving: "Stop Ridgeback to see where you can walk.",
+      pick: "Click a spot on the map or the ground, then press Walk here.",
+      planned: "Walk planned. Press Start walk when you're ready.",
+      out: "Walking out · {left} of the plan left",
+      site: "Working at the site · {left} of the plan left",
+      back: "Walking back to Ridgeback · {left} of the plan left",
+      done: "Back inside Ridgeback after {used}, with {reserve} of suit time to spare.",
+      stopped: "Walk stopped. The astronaut is back inside Ridgeback.",
+      moved: "Ridgeback moved, so the walk was called off.",
+      noData: "The walk planner needs the map data, which didn't load.",
+    },
+    reasons: {
+      steep: "Too steep: that ground is over {deg}°, the steepest a suited astronaut walks on.",
+      cutOff: "Can't get there on foot: steep ground cuts it off.",
+      tooFar: "Too far: the round trip plus time at the site comes to {total}, over the {plan} plan.",
+    },
+    stats: {
+      distance: "Distance, one way",
+      out: "Walk out",
+      back: "Walk back",
+      site: "At the site",
+      total: "Total",
+      totalValue: "{total} of {plan}",
+      reserve: "Suit time to spare",
+      steepest: "Steepest ground",
+      climb: "Climb on the way out",
+      sand: "On mapped sand",
+      none: "none",
+    },
+    limits:
+      "Limits: a {plan} plan per walk, with the suit good for {max}; the rest is reserve. " +
+      "{kmh} on flat ground, never on ground over {deg}°. Slopes slow you down (Tobler's hiking function), and so does mapped sand, by 30% (our estimate). " +
+      "These are NASA's planning figures for the Artemis Moon suit: NASA has no Mars suit specification yet.",
+  },
 };
