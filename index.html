@@ -76,16 +76,85 @@
       scrollbar-width: thin;
       pointer-events: none;
     }
-    .column > * { pointer-events: auto; }
+    .column > * { pointer-events: auto; min-width: 0; }
+    .column { overflow-x: hidden; }
     #hud-left { left: 12px; width: 280px; max-height: calc(100vh - 290px); }
     #hud-right { right: 12px; width: 310px; max-height: calc(100vh - 170px); }
     .card {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 12px 14px;
-      backdrop-filter: blur(6px);
+      border-radius: 14px;
+      padding: 14px 16px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 8px 28px rgba(0, 0, 0, .22);
     }
+
+    /* ---- right-hand tabs: one panel at a time ---- */
+    #tabs { display: flex; gap: 4px; padding: 5px; border-radius: 12px; }
+    #tabs button {
+      flex: 1;
+      padding: 7px 4px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    #tabs button:hover { color: var(--text); background: var(--btn); }
+    #tabs button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+    #hud-right details.card > summary { display: none; }
+    #hud-right details.card:not([open]) { display: none; }
+    .tab-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .tab-head h2 { margin: 0; font-size: 15px; letter-spacing: 0; text-transform: none; color: var(--text); }
+
+    /* ---- "?" help buttons (help.js) ---- */
+    .help-btn {
+      flex: none !important;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border-radius: 50%;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--muted);
+      align-self: center;
+    }
+    .help-btn[aria-expanded="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .help-pop {
+      margin: 8px 0 4px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      background: var(--btn);
+      font-size: 12px;
+    }
+    .help-pop[hidden] { display: none; }
+    .help-pop dl { display: block; }
+    .help-pop dt { color: var(--text); font-weight: 600; }
+    .help-pop dd { text-align: left; margin: 0 0 6px; color: var(--muted); }
+    .help-pop dd:last-child { margin-bottom: 0; }
+
+    /* ---- fold-away extras ("More readings", route details, learn more) ---- */
+    details.more { margin-top: 10px; font-size: 12px; }
+    details.more > summary {
+      cursor: pointer;
+      color: var(--muted);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    details.more > summary::-webkit-details-marker { display: none; }
+    details.more > summary::before { content: "\25B8"; font-size: 10px; transition: transform .15s; }
+    details.more[open] > summary::before { transform: rotate(90deg); }
+    details.more > summary:hover { color: var(--text); }
+    details.more[open] > summary { margin-bottom: 8px; }
+    .learn { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .learn details.more { margin-top: 4px; }
+    .field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #rover-telemetry { margin-top: 4px; }
     details.card > summary {
       cursor: pointer;
       font-weight: 600;
@@ -109,7 +178,8 @@
 
     /* ---- Ridgeback card ---- */
     #rb-card h1 { margin: 0; font-size: 17px; font-weight: 600; }
-    .tag { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+    .tag { display: none; }
+    #rb-card h1 { margin-bottom: 10px; }
     .row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
     #rb-battery-label { cursor: help; border-bottom: 1px dotted var(--muted); }
     .bar { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
@@ -121,11 +191,7 @@
     #rb-limit { font-size: 12px; margin: 0 0 4px; color: var(--warn); font-weight: 600; }
     #rb-hint { font-size: 12px; margin: 0 0 8px; color: var(--muted); }
     #rb-limit:empty, #rb-hint:empty { display: none; }
-    #rb-limits-box { margin-top: 10px; font-size: 12px; }
-    #rb-limits-box summary { cursor: pointer; color: var(--muted); }
-    #rb-limits { margin: 6px 0 0; padding-left: 18px; }
-    #rb-power-box { margin-top: 8px; font-size: 12px; }
-    #rb-power-box summary { cursor: pointer; color: var(--muted); }
+    #rb-limits { margin: 0; padding-left: 18px; }
     #rb-power { max-height: 40vh; overflow-y: auto; padding-right: 4px; }
     #rb-power p { margin: 6px 0; color: var(--muted); }
     #rb-power h3 { margin: 10px 0 4px; font-size: 12px; }
@@ -322,7 +388,7 @@
     #rover-panel.is-manual .auto-only, #rover-panel:not(.is-manual) .manual-only { display: none; }
     .full { width: 100%; margin: 10px 0 0; }
     .rover-row { display: flex; align-items: center; gap: 6px; margin: 10px 0; }
-    .rover-row button { flex: 1; }
+    .rover-row button { flex: 1; white-space: nowrap; padding: 6px 6px; }
     .rover-row select { width: auto; }
 
     /* ---- minimap ---- */
@@ -450,18 +516,20 @@
       <p id="rb-status"></p>
       <p id="rb-limit"></p>
       <p id="rb-hint"></p>
-      <div class="button-row">
+      <div class="button-row" data-help="rover">
         <button id="rb-recharge" type="button"></button>
         <button id="rb-reset" type="button"></button>
       </div>
-      <details id="rb-limits-box">
-        <summary id="rb-limits-title"></summary>
-        <ul id="rb-limits"></ul>
-      </details>
-      <details id="rb-power-box">
-        <summary id="rb-power-title"></summary>
-        <div id="rb-power"></div>
-      </details>
+      <div class="learn">
+        <details id="rb-limits-box" class="more">
+          <summary id="rb-limits-title"></summary>
+          <ul id="rb-limits"></ul>
+        </details>
+        <details id="rb-power-box" class="more">
+          <summary id="rb-power-title"></summary>
+          <div id="rb-power"></div>
+        </details>
+      </div>
     </section>
 
     <details id="layer-panel" class="card">
@@ -498,8 +566,30 @@
   <button id="panels-toggle" type="button" aria-expanded="false">Panels</button>
 
   <div id="hud-right" class="column">
-    <details id="info-panel" class="card" open>
+    <!-- One panel at a time: the tabs open one <details> and close the rest. -->
+    <div id="tabs" class="card" role="tablist" aria-label="Panels">
+      <button type="button" role="tab" data-tab="route-panel">Plan</button>
+      <button type="button" role="tab" data-tab="rover-panel">Drive</button>
+      <button type="button" role="tab" data-tab="walk-panel">Walk</button>
+      <button type="button" role="tab" data-tab="info-panel">Inspect</button>
+    </div>
+
+    <details id="route-panel" class="card" open>
+      <summary>Plan</summary>
+      <div class="tab-head" data-help="plan"><h2>Plan a route</h2></div>
+      <div class="field-pair">
+        <label class="field">Start <select id="route-from"></select></label>
+        <label class="field">Destination <select id="route-to"></select></label>
+      </div>
+      <label class="check"><input id="route-avoid" type="checkbox" checked> Avoid hazard zones</label>
+      <p id="route-avoid-note" class="hint"></p>
+      <div id="route-options"></div>
+      <div id="route-summary"></div>
+    </details>
+
+    <details id="info-panel" class="card">
       <summary>Inspect</summary>
+      <div class="tab-head" data-help="inspect"><h2>Inspect a spot</h2></div>
       <div id="info-body"></div>
       <div class="button-row">
         <button id="send-rover" type="button" class="primary" disabled></button>
@@ -508,18 +598,9 @@
       </div>
     </details>
 
-    <details id="route-panel" class="card" open>
-      <summary>Navigation</summary>
-      <label class="field">Start site <select id="route-from"></select></label>
-      <label class="field">Destination <select id="route-to"></select></label>
-      <label class="check"><input id="route-avoid" type="checkbox" checked> Avoid highlighted hazard zones</label>
-      <p id="route-avoid-note" class="hint"></p>
-      <div id="route-options"></div>
-      <div id="route-summary"></div>
-    </details>
-
-    <details id="rover-panel" class="card" open>
-      <summary>Driving</summary>
+    <details id="rover-panel" class="card">
+      <summary>Drive</summary>
+      <div class="tab-head" data-help="drive"><h2>Drive Ridgeback</h2></div>
       <div class="toggle" role="group" aria-label="Driving mode">
         <button id="mode-auto" type="button" aria-pressed="true">Auto</button>
         <button id="mode-manual" type="button" aria-pressed="false">Manual</button>
@@ -532,7 +613,7 @@
         <input id="rover-progress" class="full" type="range" min="0" max="1000" value="0" aria-label="Progress along route">
       </div>
       <p class="manual-only hint">W A S D / arrow keys, or hold the pad. Press Auto to plan a route from here.</p>
-      <div class="rover-row">
+      <div class="rover-row" data-help="view">
         <button id="cam-reset" type="button">Chase cam</button>
         <button id="cam-overview" type="button">Overview</button>
         <select id="rover-speed" aria-label="Simulation speed">
@@ -547,8 +628,9 @@
     </details>
 
     <!-- Astronaut walk planner (walk.js); wording from content.js -->
-    <details id="walk-panel" class="card" open>
+    <details id="walk-panel" class="card">
       <summary>Walk</summary>
+      <div class="tab-head" data-help="walk"><h2>Walk on foot</h2></div>
       <p id="walk-intro" class="hint"></p>
       <label class="check"><input id="walk-range" type="checkbox"> <span id="walk-range-label"></span></label>
       <div id="walk-legend" class="walk-legend" hidden></div>
@@ -559,13 +641,16 @@
         <button id="walk-start" type="button" class="primary" disabled></button>
         <button id="walk-clear" type="button" disabled></button>
       </div>
-      <p id="walk-limits" class="hint walk-limits"></p>
+      <details class="more">
+        <summary>Walking limits</summary>
+        <p id="walk-limits" class="hint walk-limits"></p>
+      </details>
     </details>
 
   </div>
 
   <section id="minimap" class="card" aria-label="Minimap">
-    <div class="map-toolbar">
+    <div class="map-toolbar" data-help="map">
       <h2>Map</h2>
       <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
       <button id="zoom-out" type="button" aria-label="Zoom out">&minus;</button>
@@ -597,7 +682,45 @@
       var on = document.body.classList.toggle("show-panels");
       this.setAttribute("aria-expanded", String(on));
     });
+
+    // Right-hand tabs: exactly one panel open at a time. Other scripts open a
+    // panel by setting .open (e.g. "Plan routes here"), and the tabs follow.
+    (function () {
+      var tabs = [].slice.call(document.querySelectorAll("#tabs [data-tab]"));
+      var panels = tabs.map(function (t) { return document.getElementById(t.getAttribute("data-tab")); });
+      function show(id) {
+        panels.forEach(function (p, i) {
+          var on = p.id === id;
+          if (p.open !== on) p.open = on;
+          tabs[i].setAttribute("aria-selected", String(on));
+          tabs[i].tabIndex = on ? 0 : -1;
+        });
+      }
+      tabs.forEach(function (t, i) {
+        t.addEventListener("click", function () { show(t.getAttribute("data-tab")); });
+        t.addEventListener("keydown", function (e) {
+          var d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+          if (!d) return;
+          var next = tabs[(i + d + tabs.length) % tabs.length];
+          next.focus();
+          next.click();
+        });
+      });
+      panels.forEach(function (p) {
+        p.addEventListener("toggle", function () { if (p.open) show(p.id); });
+      });
+      // Picking a spot (minimap click, or the first pick anywhere): show Inspect.
+      var send = document.getElementById("send-rover");
+      new MutationObserver(function () {
+        if (!send.disabled) show("info-panel");
+      }).observe(send, { attributes: true, attributeFilter: ["disabled"] });
+      document.getElementById("map").addEventListener("click", function () {
+        setTimeout(function () { if (!send.disabled) show("info-panel"); }, 0);
+      });
+      show("route-panel");
+    })();
   </script>
+  <script type="module" src="help.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- Real NASA/USGS data for Jezero crater (built by tools/build_jezero_data.py) -->
   <script src="data/jezero/jezero-data.js"></script>

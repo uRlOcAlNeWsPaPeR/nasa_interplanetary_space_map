@@ -57,7 +57,7 @@ export const content = {
     },
 
     hints: {
-      firstMove: "Pick a destination under Navigation, or click the map and press Plan routes here. Then choose the Fastest, Safest or Balanced route and press Start drive.",
+      firstMove: "Pick a destination above, or click a spot on the map. Then choose a route and press Start drive in the Drive tab.",
       lowPower: "Tip: switch on the Night-time IR layer. Ground that gets coldest at night (dark blue) drains the battery faster.",
       slope: "Tip: the Slope layer shows steep ground. Brighter means steeper.",
       dust: "Tip: a dust storm is coming. Sunlit, flat ground is the best place to wait it out.",
@@ -212,5 +212,46 @@ export const content = {
       "Limits: a {plan} plan per walk, with the suit good for {max}; the rest is reserve. " +
       "{kmh} on flat ground, never on ground over {deg}°. Slopes slow you down (Tobler's hiking function), and so does mapped sand, by 30% (our estimate). " +
       "These are NASA's planning figures for the Artemis Moon suit: NASA has no Mars suit specification yet.",
+  },
+
+  // The small "?" buttons next to each group of actions (help.js).
+  // Keys match data-help="..." in index.html.
+  help: {
+    buttonLabel: "What do these do?",
+    rover: [
+      { name: "Wait and recharge", text: "Stops Ridgeback so its solar panels can refill the battery. Charging is slower on dusty ground." },
+      { name: "Start over", text: "Full battery, back at the start site, routes cleared." },
+    ],
+    plan: [
+      { name: "Start site / Destination", text: "Pick where Ridgeback sets off and where it should go. You can also click the map." },
+      { name: "Avoid hazard zones", text: "Keeps routes out of the areas you highlight under Map layers & hazards." },
+      { name: "Route cards", text: "Three options: Fastest, Safest and Balanced. Pick one, then press Start drive in the Drive tab." },
+    ],
+    drive: [
+      { name: "Auto / Manual", text: "Auto follows the chosen route. Manual lets you steer with W A S D, the arrow keys or the on-screen pad." },
+      { name: "Start drive / Stop", text: "Sets off along the chosen route, or pauses." },
+      { name: "Restart route", text: "Puts Ridgeback back at the start of the route and drives it again." },
+      { name: "Slider", text: "Jump to any point along the route." },
+    ],
+    view: [
+      { name: "Chase cam", text: "Camera follows behind Ridgeback." },
+      { name: "Overview", text: "Camera pulls up high to show the whole area." },
+      { name: "Speed (1×)", text: "Runs the simulation faster or slower. The battery drains at the same pace." },
+    ],
+    inspect: [
+      { name: "Plan routes here", text: "Makes the spot you clicked the destination and plans three routes to it." },
+      { name: "Walk here", text: "Plans a walk on foot from parked Ridgeback to the spot you clicked." },
+      { name: "Clear", text: "Removes the marker from the spot you clicked." },
+    ],
+    walk: [
+      { name: "Show walking range", text: "Colours the ground you can reach on foot and still get back in time." },
+      { name: "Time at the site", text: "How long the astronaut spends working once they arrive." },
+      { name: "Start walk / Clear walk", text: "Sets off on the planned walk, or removes the plan." },
+    ],
+    map: [
+      { name: "+ / −", text: "Zoom the map in or out. Drag to move around when zoomed." },
+      { name: "Fit", text: "Shows the whole map again." },
+      { name: "Expand map", text: "Makes the map bigger. Click any spot on it to inspect it." },
+    ],
   },
 };

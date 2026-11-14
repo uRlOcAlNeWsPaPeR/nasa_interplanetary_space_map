@@ -641,7 +641,7 @@
     var anyLimit = map.hazardKeys().some(function (k) { return map.hazardLimit(k) !== null; });
     avoidNote.textContent = anyLimit
       ? ""
-      : "Turn on a hazard highlight (left) to mark zones to avoid.";
+      : "Mark zones under Map layers & hazards (left).";
     if (!routes) {
       summary.appendChild(el("p", "empty", planMessage));
       return;
@@ -692,7 +692,13 @@
 
     var sel = selectedRoute();
     var m = sel.metrics;
-    summary.appendChild(el("h3", "", sel.profile.name + " route"));
+    // Full numbers and trouble spots fold away until asked for.
+    var details = el("details", "more");
+    details.open = routeDetailsOpen;
+    details.addEventListener("toggle", function () { routeDetailsOpen = details.open; });
+    details.appendChild(el("summary", "", sel.profile.name + " route details"));
+    summary.appendChild(details);
+    var box = details; // the rows below go inside the fold
     var dl = document.createElement("dl");
     addRow(dl, "Length", distText(m.length));
     addRow(dl, "Drive time (1×)", formatTime(m.time));
@@ -701,11 +707,11 @@
     map.addRow(dl, "Sand exposure", pct(m.dustShare) + " above " + pct(threshold("dustRisk")), "dustRisk", m.dustShare > 0.005);
     addRow(dl, "Hazard crossings", String(m.crossings));
     addRow(dl, "Risk score", Math.round(m.risk * 100) + " / 100 · " + riskLevel(m.risk).name);
-    summary.appendChild(dl);
+    box.appendChild(dl);
 
-    summary.appendChild(el("h3", "", "Areas of concern"));
+    box.appendChild(el("h3", "", "Areas of concern"));
     if (!m.stretches.length) {
-      summary.appendChild(el("p", "empty", "None on this route."));
+      box.appendChild(el("p", "empty", "None on this route."));
     } else {
       var worst = m.stretches.slice().sort(function (a, b) {
         return (b.to - b.from) * Math.max(b.slope, b.dust) - (a.to - a.from) * Math.max(a.slope, a.dust);
@@ -717,9 +723,9 @@
         if (st.hasDust) parts.push(HAZARD_WORDS.dustRisk + " up to " + pct(st.dust));
         ul.appendChild(el("li", "", pct(st.from) + "–" + pct(st.to) + " of the way: " + parts.join(", ")));
       });
-      summary.appendChild(ul);
+      box.appendChild(ul);
       if (m.stretches.length > worst.length) {
-        summary.appendChild(el("p", "empty", "Plus " + (m.stretches.length - worst.length) + " shorter stretches."));
+        box.appendChild(el("p", "empty", "Plus " + (m.stretches.length - worst.length) + " shorter stretches."));
       }
     }
   }
@@ -1094,7 +1100,7 @@
 
   function hintKey() {
     var s = rover.sample;
-    if (!everMoved) return "firstMove";
+    // (The first-move hint is shown once, in the Plan tab, not repeated here.)
     if (rover.battery < LOW_BATTERY) return "lowPower";
     if (s.slope > MAX_SLOPE * 0.75 || rover.blocked === "steepSlope") return "slope";
     return null;
@@ -1140,32 +1146,44 @@
     zone: "hazard zone ahead", edge: "edge of the map"
   };
 
+  var moreReadingsOpen = false;  // "More readings" stays open across redraws
+  var routeDetailsOpen = false;  // so does "Route details"
+
   function renderTelemetry() {
     telemetry.textContent = "";
     renderHud();
     renderRisk();
     if (!rover.pos || !rover.sample) return;
     var s = rover.sample;
+    // The few readings that matter while driving; the rest fold away.
     var list = document.createElement("dl");
-    addRow(list, "Mode", (rover.mode === "auto" ? "Auto" : "Manual") +
-      (rover.blocked ? " · " + BLOCK_WORDS[rover.blocked] : ""));
-    addRow(list, "Battery", Math.round(rover.battery) + "% · " +
-      Math.round(rover.battery / 100 * BATTERY_WH).toLocaleString() + " of " + BATTERY_WH.toLocaleString() + " Wh");
-    addRow(list, "Power", (rover.watts > 0.5 ? "+" + Math.round(rover.watts) + " W charging"
-      : rover.watts < -0.5 ? Math.round(-rover.watts) + " W draw" : "0 W") +
-      " · " + (rover.drain > 0.01 ? "+" : "") + rover.drain.toFixed(1) + "%/s");
-    addRow(list, "Heading", compass(rover.heading));
+    addRow(list, "Power", rover.watts > 0.5 ? "+" + Math.round(rover.watts) + " W charging"
+      : rover.watts < -0.5 ? Math.round(-rover.watts) + " W draw" : "Idle");
     addRow(list, "Speed", pct(Math.abs(rover.speed) / (DRIVE_SPEED * speedMul())) + " of top speed");
-    addRow(list, "Position", data.formatLatLon ? latLon(rover.pos) : rover.pos.nx.toFixed(3) + ", " + rover.pos.ny.toFixed(3));
     if (dest) addRow(list, "To destination", distText(mapDist(rover.pos, dest)));
-    if (rover.mode === "auto" && rover.path) addRow(list, "Route progress", pct(rover.s / rover.total));
-    addRow(list, "Elevation", isFinite(s.elevation) ? Math.round(s.elevation).toLocaleString() + " m" : "no data");
     map.addRow(list, "Slope", pct(s.slope) + " (limit " + pct(MAX_SLOPE) + ")", "slope", map.isOverHazardLimit("slope", s.slope));
-    map.addRow(list, "Mapped sand", pct(s.dustRisk), "dustRisk", map.isOverHazardLimit("dustRisk", s.dustRisk));
-    addRow(list, "Night-time IR", isFinite(s.nightIR) ? s.nightIR.toFixed(2) + " (relative)" : "no data");
-    var unit = data.getUnit ? data.getUnit(s.geology) : null;
-    if (unit) addRow(list, "Geologic unit", unit.name);
     telemetry.appendChild(list);
+
+    var more = el("details", "more");
+    more.open = moreReadingsOpen;
+    more.addEventListener("toggle", function () { moreReadingsOpen = more.open; });
+    more.appendChild(el("summary", "", "More readings"));
+    var extra = document.createElement("dl");
+    addRow(extra, "Mode", (rover.mode === "auto" ? "Auto" : "Manual") +
+      (rover.blocked ? " · " + BLOCK_WORDS[rover.blocked] : ""));
+    addRow(extra, "Energy left", Math.round(rover.battery / 100 * BATTERY_WH).toLocaleString() +
+      " of " + BATTERY_WH.toLocaleString() + " Wh");
+    addRow(extra, "Battery change", (rover.drain > 0.01 ? "+" : "") + rover.drain.toFixed(1) + "% per second");
+    addRow(extra, "Heading", compass(rover.heading));
+    if (rover.mode === "auto" && rover.path) addRow(extra, "Route progress", pct(rover.s / rover.total));
+    addRow(extra, "Position", data.formatLatLon ? latLon(rover.pos) : rover.pos.nx.toFixed(3) + ", " + rover.pos.ny.toFixed(3));
+    addRow(extra, "Elevation", isFinite(s.elevation) ? Math.round(s.elevation).toLocaleString() + " m" : "no data");
+    map.addRow(extra, "Mapped sand", pct(s.dustRisk), "dustRisk", map.isOverHazardLimit("dustRisk", s.dustRisk));
+    addRow(extra, "Night-time IR", isFinite(s.nightIR) ? s.nightIR.toFixed(2) + " (relative)" : "no data");
+    var unit = data.getUnit ? data.getUnit(s.geology) : null;
+    if (unit) addRow(extra, "Geologic unit", unit.name);
+    more.appendChild(extra);
+    telemetry.appendChild(more);
     if (rover.mode === "auto" && rover.path && (rover.playing || rover.arrived)) {
       progressInput.value = String(Math.round(rover.s / rover.total * 1000));
     }
