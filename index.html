@@ -72,9 +72,27 @@
       gap: 8px;
       padding: 4px 0;
     }
-    .layer-row input { accent-color: var(--accent); }
+    .layer-row label { display: flex; align-items: center; gap: 8px; flex: 1; }
+    input[type="checkbox"], input[type="range"] { accent-color: var(--accent); }
+    .layer-row input[type="range"] { width: 64px; flex: none; }
+    .hazard-row { padding: 4px 0; }
+    .hazard-row input[type="range"] { width: 100%; margin: 4px 0 0; }
+    .hazard-head { display: flex; justify-content: space-between; }
+    .hazard-head span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
     .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-    #site-legend { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+    .section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+    button {
+      margin-top: 10px;
+      width: 100%;
+      padding: 6px 8px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
     .side { display: grid; gap: 16px; }
     aside dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; }
     aside dt { color: var(--muted); }
@@ -104,7 +122,12 @@
     <aside id="layer-panel">
       <h2>Layers</h2>
       <div id="layer-list"></div>
-      <div id="site-legend"></div>
+      <button id="reset-layers" type="button">Reset layers</button>
+      <div class="section">
+        <h2>Highlight hazards</h2>
+        <div id="hazard-list"></div>
+      </div>
+      <div id="site-legend" class="section"></div>
     </aside>
     <section id="map-wrap">
       <canvas id="map" width="720" height="540"></canvas>
@@ -114,6 +137,7 @@
       <aside id="info-panel">
         <h2>Sample</h2>
         <div id="info-body"></div>
+        <button id="clear-sample" type="button">Clear sample</button>
       </aside>
       <aside id="route-panel">
         <h2>Route</h2>

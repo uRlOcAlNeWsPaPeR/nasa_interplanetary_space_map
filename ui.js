@@ -14,6 +14,7 @@
   var canvas = document.getElementById("map");
   var ctx = canvas.getContext("2d");
   var layerList = document.getElementById("layer-list");
+  var hazardList = document.getElementById("hazard-list");
   var siteLegend = document.getElementById("site-legend");
   var infoBody = document.getElementById("info-body");
   var hoverReadout = document.getElementById("hover-readout");
@@ -44,6 +45,11 @@
   var SITE_FALLBACK_COLOR = "#ffffff";
   var SITE_SNAP_RADIUS = 0.035; // normalized distance for "you clicked a site"
 
+  // Sample fields (0-1) that get a "highlight above this limit" slider.
+  var HAZARD_KEYS = ["slope", "dustRisk"];
+  var HAZARD_TINT = [235, 60, 50];
+  var BASE_GRAY = 46; // map colour where no layer is showing
+
   function percent(v) {
     return Math.round(v * 100) + "%";
   }
@@ -55,6 +61,8 @@
   var layers = data.getActiveLayers();
   var sites = data.getNamedSites();
   var enabled = {};
+  var opacity = {};    // layer name -> 0..1
+  var limits = {};     // hazard field key -> 0..1, 1 means "off"
   var selected = null; // { nx, ny }
   var fieldCache = {}; // key -> { values: Float32Array, min, max }
   var overlays = []; // extra draw(ctx, W, H) callbacks, e.g. the route from rover.js
@@ -122,9 +130,19 @@
     var elev = getField("elevation");
     var span = elev.max - elev.min || 1;
 
-    var drawn = active.map(function (name) {
+    var drawn = active.filter(function (name) { return opacity[name] > 0; }).map(function (name) {
       var style = styleFor(name);
-      return { style: style, field: getField(style.key) };
+      return { style: style, field: getField(style.key), weight: opacity[name] };
+    });
+    var totalWeight = 0;
+    var maxWeight = 0;
+    drawn.forEach(function (d) {
+      totalWeight += d.weight;
+      if (d.weight > maxWeight) maxWeight = d.weight;
+    });
+
+    var hazards = HAZARD_KEYS.filter(function (key) { return limits[key] < 1; }).map(function (key) {
+      return { values: getField(key).values, limit: limits[key] };
     });
 
     for (var y = 0; y < H; y++) {
@@ -136,12 +154,16 @@
           var f = drawn[k].field;
           var t = (f.values[i] - f.min) / (f.max - f.min || 1);
           rampColor(drawn[k].style.ramp, t, rgb);
-          r += rgb[0]; g += rgb[1]; b += rgb[2];
+          var w = drawn[k].weight;
+          r += rgb[0] * w; g += rgb[1] * w; b += rgb[2] * w;
         }
         if (drawn.length) {
-          r /= drawn.length; g /= drawn.length; b /= drawn.length;
+          // Weighted mix of the layers, faded toward gray by the strongest opacity.
+          r = BASE_GRAY + (r / totalWeight - BASE_GRAY) * maxWeight;
+          g = BASE_GRAY + (g / totalWeight - BASE_GRAY) * maxWeight;
+          b = BASE_GRAY + (b / totalWeight - BASE_GRAY) * maxWeight;
         } else {
-          r = g = b = 46;
+          r = g = b = BASE_GRAY;
         }
 
         var left = elev.values[y * W + Math.max(x - 1, 0)];
@@ -149,9 +171,20 @@
         var shade = 1 + ((elev.values[i] - left) + (elev.values[i] - up)) / span * 22;
         shade = shade < 0.55 ? 0.55 : shade > 1.35 ? 1.35 : shade;
 
-        px[i * 4] = r * shade;
-        px[i * 4 + 1] = g * shade;
-        px[i * 4 + 2] = b * shade;
+        r *= shade; g *= shade; b *= shade;
+
+        for (var h = 0; h < hazards.length; h++) {
+          if (hazards[h].values[i] > hazards[h].limit) {
+            r = (r + HAZARD_TINT[0]) / 2;
+            g = (g + HAZARD_TINT[1]) / 2;
+            b = (b + HAZARD_TINT[2]) / 2;
+            break;
+          }
+        }
+
+        px[i * 4] = r;
+        px[i * 4 + 1] = g;
+        px[i * 4 + 2] = b;
         px[i * 4 + 3] = 255;
       }
     }
@@ -213,8 +246,10 @@
     layerList.textContent = "";
     layers.forEach(function (name, index) {
       enabled[name] = index === 0; // first layer on by default
-      var row = document.createElement("label");
+      opacity[name] = 1;
+      var row = document.createElement("div");
       row.className = "layer-row";
+      var label = document.createElement("label");
       var box = document.createElement("input");
       box.type = "checkbox";
       box.checked = enabled[name];
@@ -222,9 +257,56 @@
         enabled[name] = box.checked;
         render();
       });
-      row.appendChild(box);
-      row.appendChild(document.createTextNode(name));
+      label.appendChild(box);
+      label.appendChild(document.createTextNode(name));
+      var slider = makeSlider(name + " opacity");
+      slider.addEventListener("input", function () {
+        opacity[name] = slider.value / 100;
+        render();
+      });
+      row.appendChild(label);
+      row.appendChild(slider);
       layerList.appendChild(row);
+    });
+  }
+
+  function makeSlider(ariaLabel) {
+    var slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "100";
+    slider.value = "100";
+    slider.setAttribute("aria-label", ariaLabel);
+    return slider;
+  }
+
+  function buildHazardPanel() {
+    hazardList.textContent = "";
+    HAZARD_KEYS.forEach(function (key) {
+      limits[key] = 1;
+      var field = FIELDS.filter(function (f) { return f.key === key; })[0];
+      var row = document.createElement("div");
+      row.className = "hazard-row";
+      var head = document.createElement("div");
+      head.className = "hazard-head";
+      var name = document.createElement("span");
+      name.textContent = field.label;
+      var value = document.createElement("span");
+      head.appendChild(name);
+      head.appendChild(value);
+      var slider = makeSlider(field.label + " limit");
+      function sync() {
+        limits[key] = slider.value / 100;
+        value.textContent = limits[key] < 1 ? "above " + field.format(limits[key]) : "off";
+      }
+      slider.addEventListener("input", function () {
+        sync();
+        render();
+      });
+      sync();
+      row.appendChild(head);
+      row.appendChild(slider);
+      hazardList.appendChild(row);
     });
   }
 
@@ -321,7 +403,20 @@
     hoverReadout.textContent = "";
   });
 
+  document.getElementById("clear-sample").addEventListener("click", function () {
+    selected = null;
+    render();
+    showInfo();
+  });
+
+  document.getElementById("reset-layers").addEventListener("click", function () {
+    buildLayerPanel();
+    buildHazardPanel();
+    render();
+  });
+
   buildLayerPanel();
+  buildHazardPanel();
   buildSiteLegend();
   render();
   showInfo();
