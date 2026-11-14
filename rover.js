@@ -67,16 +67,26 @@
   var DEEP_SAND = 0.64;        // dust risk above this: wheels dig in, only reversing works
   var STUCK_REVERSE = 0.4;     // reverse speed factor while dug in
 
-  // Battery, in % of a full charge.
-  var DRAIN_RATE = 1.1;        // per second at top speed on flat ground
-  var CLIMB_DRAIN = 5;         // extra drain per unit of uphill slope
+  // Battery. The power budget is worked out in watts and watt-hours, using
+  // NASA rover figures (sources in content.js, realPower), then shown as %.
+  // Game time is compressed: one real second covers TIME_SCALE seconds of
+  // mission time, so a full drive fits in a few minutes.
+  var BATTERY_WH = 2408;       // Perseverance's rover battery: 2,408 Wh at 20 degC
+  var TIME_SCALE = 190;        // mission seconds per real second (~3 min)
+  var AWAKE_W = 150;           // Curiosity draws at least 150 W whenever awake
+  var DRIVE_W = 350;           // extra at top speed: ~500 W total, Curiosity's driving draw
+  var PEAK_W = 900;            // Perseverance's peak demand during science activities
+  var CLIMB_DRAIN = 5;         // extra drive load per unit of uphill slope
   var COLD_REF = -55;          // degC; colder than this drains faster...
-  var COLD_DRAIN = 0.03;       // ...by 3% per degree
-  var SPIN_DRAIN = 0.6;        // per second spinning wheels while stuck
-  var SOLAR_RATE = 2.2;        // recharge per second while stopped, in clear air
+  var COLD_DRAIN = 0.03;       // ...by 3% per degree (cold cells deliver less: Perseverance's give ~26% less at -20 degC than +35 degC)
+  var SPIN_W = 270;            // spinning wheels while dug in
+  var SOLAR_W = 1000;          // Ridgeback's panels while stopped, in clear air (Ridgeback is fictional; real rovers use an RTG)
   var DUST_SHADE = 0.8;        // at 100% dust risk, panels get 20% of the sun
-  var LOW_BATTERY = 25;
+  var LOW_BATTERY = 40;        // NASA keeps Perseverance's battery at or above 40% every sol
   var CRITICAL_BATTERY = 10;
+
+  // Watts in or out of the battery -> % of a full charge per real second.
+  function wattsToPct(w) { return w * TIME_SCALE / 3600 / BATTERY_WH * 100; }
   var SMOOTH_PASSES = 3;       // corner rounding of the planner's grid path
   var TELEMETRY_EVERY = 0.15;  // seconds between panel updates
   var REPLAN_EVERY = 0.7;      // seconds between route updates while driving manually
@@ -461,6 +471,7 @@
     battery: 100,
     dead: false,     // battery ran out
     drain: 0,        // current battery change per second (for the readout)
+    watts: 0,        // current power in (+) or out (-) of the battery, at 1x
     path: null, cum: null, total: 0, s: 0 // the route being followed
   };
 
@@ -790,9 +801,33 @@
         list.appendChild(el("li", "", limits[key]));
       });
     }
+    renderRealPower(TEXT && TEXT.realPower);
     if (!routes) renderRoutes();
     syncControls();
     renderTelemetry();
+  }
+
+  // "How real Mars rovers get power": sourced facts from content.js.
+  function renderRealPower(info) {
+    var box = document.getElementById("rb-power");
+    box.textContent = "";
+    if (!info) return;
+    document.getElementById("rb-power-title").textContent = info.title;
+    box.appendChild(el("p", "", info.intro));
+    info.sections.forEach(function (section) {
+      box.appendChild(el("h3", "", section.heading));
+      var ul = el("ul");
+      section.facts.forEach(function (fact) {
+        var li = el("li", "", fact.text + " ");
+        var a = el("a", "", "[" + info.sourceLabel + "]");
+        a.href = fact.source;
+        a.target = "_blank";
+        a.rel = "noopener";
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+    });
   }
 
   // ===========================================================================
@@ -908,20 +943,24 @@
   function stepBattery(dt, prevElevation) {
     var s = rover.sample;
     var mul = speedMul();
-    var rate;
+    var watts; // + charging, - drawing from the battery
     var moving = Math.abs(rover.speed) > 0;
     if (moving) {
       var dist = Math.abs(rover.speed) * dt;
       var uphill = dist > 0 && s.elevation > prevElevation ? s.slope : 0;
       var cold = 1 + Math.max(0, COLD_REF - s.temperature) * COLD_DRAIN;
-      rate = -DRAIN_RATE * (Math.abs(rover.speed) / DRIVE_SPEED) * (1 + CLIMB_DRAIN * uphill) * cold;
+      // Speed is already scaled by the sim-speed multiplier, and so is the drain.
+      var load = (AWAKE_W * mul + DRIVE_W * (Math.abs(rover.speed) / DRIVE_SPEED) * (1 + CLIMB_DRAIN * uphill)) * cold;
+      watts = -Math.min(PEAK_W * mul, load);
     } else if (rover.blocked === "deepSand" && input.up) {
-      rate = -SPIN_DRAIN * mul;
+      watts = -SPIN_W * mul;
     } else if (!rover.dead && rover.battery < 100) {
-      rate = SOLAR_RATE * (1 - DUST_SHADE * s.dustRisk) * mul;
+      watts = SOLAR_W * (1 - DUST_SHADE * s.dustRisk) * mul;
     } else {
-      rate = 0;
+      watts = 0;
     }
+    rover.watts = watts / mul;
+    var rate = wattsToPct(watts);
     rover.drain = rate;
     rover.battery = Math.max(0, Math.min(100, rover.battery + rate * dt));
     if (rover.battery <= 0 && !rover.dead) {
@@ -1073,7 +1112,10 @@
     addRow(list, "Mode", (rover.mode === "auto" ? "Auto" : "Manual") +
       (rover.blocked ? " · " + BLOCK_WORDS[rover.blocked] : ""));
     addRow(list, "Battery", Math.round(rover.battery) + "% · " +
-      (rover.drain > 0.01 ? "+" : "") + rover.drain.toFixed(1) + "%/s");
+      Math.round(rover.battery / 100 * BATTERY_WH).toLocaleString() + " of " + BATTERY_WH.toLocaleString() + " Wh");
+    addRow(list, "Power", (rover.watts > 0.5 ? "+" + Math.round(rover.watts) + " W charging"
+      : rover.watts < -0.5 ? Math.round(-rover.watts) + " W draw" : "0 W") +
+      " · " + (rover.drain > 0.01 ? "+" : "") + rover.drain.toFixed(1) + "%/s");
     addRow(list, "Heading", compass(rover.heading));
     addRow(list, "Speed", pct(Math.abs(rover.speed) / (DRIVE_SPEED * speedMul())) + " of top speed");
     if (dest) addRow(list, "To destination", mapDist(rover.pos, dest).toFixed(2) + " × map width");

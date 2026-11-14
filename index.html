@@ -124,6 +124,14 @@
     #rb-limits-box { margin-top: 10px; font-size: 12px; }
     #rb-limits-box summary { cursor: pointer; color: var(--muted); }
     #rb-limits { margin: 6px 0 0; padding-left: 18px; }
+    #rb-power-box { margin-top: 8px; font-size: 12px; }
+    #rb-power-box summary { cursor: pointer; color: var(--muted); }
+    #rb-power { max-height: 40vh; overflow-y: auto; padding-right: 4px; }
+    #rb-power p { margin: 6px 0; color: var(--muted); }
+    #rb-power h3 { margin: 10px 0 4px; font-size: 12px; }
+    #rb-power ul { margin: 0; padding-left: 18px; }
+    #rb-power li { margin-bottom: 4px; }
+    #rb-power a { color: var(--muted); font-size: 11px; white-space: nowrap; }
 
     /* ---- controls ---- */
     button {
@@ -375,6 +383,10 @@
       <details id="rb-limits-box">
         <summary id="rb-limits-title"></summary>
         <ul id="rb-limits"></ul>
+      </details>
+      <details id="rb-power-box">
+        <summary id="rb-power-title"></summary>
+        <div id="rb-power"></div>
       </details>
     </section>
 
