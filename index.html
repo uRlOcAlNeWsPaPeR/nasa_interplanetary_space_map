@@ -245,10 +245,36 @@
     .empty { color: var(--muted); margin: 0; font-size: 13px; }
 
     /* ---- layers and hazards ---- */
-    .layer-row, .legend-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
-    .layer-row label { display: flex; align-items: center; gap: 8px; flex: 1; }
-    .layer-row input[type="range"] { width: 72px; flex: none; }
-    .hazard-row { padding: 4px 0; }
+    .legend-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+    /* Layers: each one a card with its colour scale; lit up when it's on. */
+    #layer-list { display: grid; gap: 6px; }
+    .layer-row {
+      display: grid;
+      grid-template-columns: 1fr 84px;
+      grid-template-areas: "label label" "ramp slider";
+      align-items: center;
+      gap: 6px 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--btn);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .layer-row.is-on { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+    .layer-row:not(.is-on) .layer-ramp, .layer-row:not(.is-on) input[type="range"] { opacity: .4; }
+    .layer-row label { grid-area: label; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .layer-name { font-weight: 600; }
+    .layer-row:not(.is-on) .layer-name { font-weight: 500; color: var(--muted); }
+    .layer-ramp { grid-area: ramp; height: 8px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); }
+    .layer-row input[type="range"] { grid-area: slider; width: 100%; margin: 0; }
+
+    /* Layers / Hazards tabs on the left card (same look as the right tabs). */
+    .tabs { display: flex; gap: 4px; padding: 4px; margin: -6px -8px 12px; border-radius: 10px; background: var(--btn); }
+    .tabs button { flex: 1; padding: 6px 4px; border: none; border-radius: 7px; background: transparent; color: var(--muted); font-weight: 600; }
+    .tabs button:hover { color: var(--text); }
+    .tabs button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+    #layers-pane[hidden], #hazards-pane[hidden] { display: none; }
+    .hazard-row { padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--line); border-left: 4px solid var(--hz); border-radius: 10px; background: var(--btn); }
     .hazard-row input[type="range"] { width: 100%; margin: 4px 0 0; }
     .hazard-head { display: flex; justify-content: space-between; }
     .hazard-head > span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -634,24 +660,29 @@
       </div>
     </section>
 
-    <details id="layer-panel" class="card">
-      <summary>Map layers &amp; hazards</summary>
-      <h2>Layers</h2>
-      <div id="layer-list"></div>
-      <div class="button-row"><button id="reset-layers" type="button">Reset layers</button></div>
-      <div class="section">
-        <h2>Your limits</h2>
+    <!-- Map layers and hazards: two tabs in one always-visible card. -->
+    <section id="layer-panel" class="card">
+      <div class="tabs" role="tablist" aria-label="Map">
+        <button type="button" role="tab" id="tab-layers" aria-controls="layers-pane" aria-selected="true">Layers</button>
+        <button type="button" role="tab" id="tab-hazards" aria-controls="hazards-pane" aria-selected="false" tabindex="-1">Hazards</button>
+      </div>
+      <div id="layers-pane" role="tabpanel" aria-labelledby="tab-layers">
+        <div class="tab-head" data-help="layers"><h2>What the map shows</h2></div>
+        <div id="layer-list"></div>
+        <div class="button-row"><button id="reset-layers" type="button">Reset layers</button></div>
+        <div id="site-legend" class="section"></div>
+      </div>
+      <div id="hazards-pane" role="tabpanel" aria-labelledby="tab-hazards" hidden>
+        <div class="tab-head" data-help="hazards"><h2>Your limits</h2></div>
         <div id="hazard-list"></div>
-      </div>
-      <div class="section">
-        <h2>Legend</h2>
-        <div id="map-legend">
-          <div id="map-legend-hazards"></div>
-          <div id="map-legend-routes"></div>
+        <div class="section">
+          <div id="map-legend">
+            <div id="map-legend-hazards"></div>
+            <div id="map-legend-routes"></div>
+          </div>
         </div>
-        <div id="site-legend"></div>
       </div>
-    </details>
+    </section>
 
     <details id="data-panel" class="card">
       <summary>Data &amp; sources</summary>
@@ -836,6 +867,27 @@
       var on = document.body.classList.toggle("show-panels");
       this.setAttribute("aria-expanded", String(on));
     });
+
+    // Left card: Layers / Hazards tabs.
+    (function () {
+      var tabs = [document.getElementById("tab-layers"), document.getElementById("tab-hazards")];
+      function show(i) {
+        tabs.forEach(function (t, j) {
+          t.setAttribute("aria-selected", String(i === j));
+          t.tabIndex = i === j ? 0 : -1;
+          document.getElementById(t.getAttribute("aria-controls")).hidden = i !== j;
+        });
+      }
+      tabs.forEach(function (t, i) {
+        t.addEventListener("click", function () { show(i); });
+        t.addEventListener("keydown", function (e) {
+          if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+          var j = (i + 1) % 2;
+          tabs[j].focus();
+          show(j);
+        });
+      });
+    })();
 
     // Right-hand tabs: exactly one panel open at a time. Other scripts open a
     // panel by setting .open (e.g. "Plan routes here"), and the tabs follow.

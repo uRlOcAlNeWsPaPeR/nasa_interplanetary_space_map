@@ -52,6 +52,15 @@ export const content = {
       text: "Ridgeback has run out of power and can't move. The mission is over.",
       button: "Start over",
     },
+    // The same alert when driving by hand ends the mission another way.
+    sandAlert: {
+      title: "Trapped in sand",
+      text: "Ridgeback's wheels sank too deep to drive out. NASA's Spirit rover was lost the same way in 2009. Next time, back out as soon as the wheels start to sink.",
+    },
+    tipAlert: {
+      title: "Ridgeback tipped over",
+      text: "The slope was too steep and Ridgeback rolled. Driving across a slope tips it sooner than going straight up or down.",
+    },
 
     // Warning under the risk meter while Ridgeback closes in on a hazard (rover.js).
     warnings: {
@@ -66,14 +75,14 @@ export const content = {
         danger: "Deep sand ahead: Ridgeback will get stuck",
         hereCaution: "On mapped sand",
         hereDanger: "Dug into deep sand: drive out the way you came",
-        key: "Blue: sand to avoid · Yellow: all mapped sand",
+        key: "Red: sand to avoid · Yellow: all mapped sand",
       },
     },
 
     limits: {
       title: "What Ridgeback can't do",
-      steepSlope: "Can't climb very steep slopes. It would tip over.",
-      deepSand: "Gets stuck in deep sand, and can only get out the way it came in (forward or in reverse). Avoid dark, loose-looking patches.",
+      steepSlope: "On steep slopes it slides downhill, and past about 60% it tips over. Across a slope it tips sooner.",
+      deepSand: "Wheels sink in loose sand. Keep pushing and it gets trapped for good; back out the way you came as soon as it starts to sink.",
       extremeCold: "Battery drains much faster in extreme cold. Real rover cells hold about a quarter less charge at −20 °C.",
       dustStorm: "Solar panels barely work during a dust storm.",
     },
@@ -87,6 +96,11 @@ export const content = {
       stuck: "Ridgeback is stuck. Turn toward the way you came in and drive out, then choose a safer route.",
       arrived: "You made it. Ridgeback has reached the destination.",
       failed: "Ridgeback has run out of power. The mission is over.",
+      sinking: "The wheels are sinking into the sand! Reverse out the way you came before Ridgeback is trapped.",
+      sliding: "Ridgeback is sliding downhill. Get onto flatter ground.",
+      tipping: "Ridgeback is about to tip over! Turn straight downhill or get off this slope now.",
+      trapped: "Ridgeback is trapped in the sand. The mission is over.",
+      tipped: "Ridgeback tipped over on the slope. The mission is over.",
     },
 
     hints: {
@@ -302,7 +316,7 @@ export const content = {
     ],
     plan: [
       { name: "Start site / Destination", text: "Pick where Ridgeback sets off and where it should go. Or right-click a spot on the map or the ground, double-click it and choose Drive here." },
-      { name: "Stay within my limits", text: "Routes go the long way round any ground over your limits. If no way there stays within them, you're told." },
+      { name: "Stay within my limits", text: "Routes go the long way round any ground over your limits (set in the Hazards tab, left). If no way there stays within them, you're told." },
       { name: "Clear", text: "Removes the destination, its routes and the marker on the map." },
       { name: "Route cards", text: "Three options: Fastest, Safest and Balanced. Pick one, then press Start drive in the Drive tab." },
     ],
@@ -327,6 +341,16 @@ export const content = {
       { name: "Walk / Stop walk", text: "Sets off on the planned walk once you've checked the details, or calls it off. If the route crosses risky ground (yellow), you're asked to confirm first." },
       { name: "Clear", text: "Removes the planned walk." },
       { name: "Time at the site", text: "Under Options & limits: how long the astronaut spends working once they arrive." },
+    ],
+    layers: [
+      { name: "Layer cards", text: "Tick a layer to paint it on the map and the 3D ground. The coloured strip shows its colour scale: dark is low, bright is high." },
+      { name: "Slider", text: "Fades a layer in or out so you can see the layers underneath." },
+      { name: "Reset layers", text: "Back to just the satellite image." },
+    ],
+    hazards: [
+      { name: "Slope (magenta)", text: "The steepest ground you'll drive on. Ground over it is marked magenta. On very steep ground Ridgeback slides and can tip over." },
+      { name: "Mapped sand (red)", text: "The most sand you'll drive through. Ground over it is marked red. In deep sand Ridgeback's wheels sink and it can get trapped." },
+      { name: "Change my limits", text: "Set new limits. Routes go the long way round anything over them." },
     ],
     map: [
       { name: "+ / −", text: "Zoom the map in or out. Drag to move around when zoomed." },

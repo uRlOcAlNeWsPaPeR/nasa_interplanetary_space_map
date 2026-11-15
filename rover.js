@@ -77,6 +77,24 @@
   var DEEP_SAND = 0.8;
   var STUCK_FACTOR = 0.4;      // speed factor while dug in, either direction
 
+  // Physics when driving by hand (Auto mode's hazard avoidance keeps it safe).
+  // Sand: wheels sink while driving on loose sand. Sinkage slows Ridgeback
+  // down; at 100% it is trapped for good, as NASA's Spirit was in 2009.
+  // Backing out sinks far less than pushing on; firm ground lets it recover.
+  var SINK_SAND = 0.6;         // mapped sand above this starts to swallow the wheels
+  var SINK_RATE = 0.16;        // sinkage per second, forward, at 100% sand
+  var SINK_SPIN = 2.5;         // spinning in place digs in this much faster
+  var SINK_REVERSE = 0.3;      // reversing sinks at this share of the forward rate
+  var SINK_RECOVER = 0.35;     // sinkage shed per second driving on firm ground
+  // Slopes: above SLIDE_SLOPE gravity pulls Ridgeback downhill; above its
+  // tipping slope it starts to tip, and tips over once TIP_TIME has built up.
+  // Driving across a slope (side-on) tips it sooner than straight up or down.
+  var SLIDE_SLOPE = 0.45;
+  var SLIDE_RATE = 0.06;       // map widths per second per unit of slope over SLIDE_SLOPE
+  var SIDE_TIP = 0.25;         // side-on, the tipping slope drops by this share
+  var TIP_TIME = 1.2;          // seconds of over-the-limit tilt before it goes over
+  var TUMBLE_TIME = 1.6;       // seconds the roll down the slope lasts
+
   // Battery. The power budget is worked out in watts and watt-hours, using
   // NASA rover figures (sources in content.js, realPower), then shown as %.
   // Game time is compressed: one real second covers TIME_SCALE seconds of
@@ -532,6 +550,11 @@
     sample: null,    // terrain under the rover
     blocked: null,   // limit that stopped the rover: "steepSlope" | "deepSand" | "zone" | "edge"
     stuck: false,    // dug into deep sand
+    sink: 0,         // 0-1 how far the wheels have sunk into sand (1 = trapped)
+    tilt: 0,         // 0-1 how close to tipping over on a steep slope
+    sliding: false,  // being pulled downhill by gravity
+    failure: null,   // why the mission ended: "battery" | "sand" | "tipped"
+    tumble: 0, tumbleDir: null, tumbleSide: 0, // the roll after tipping over
     battery: 100,
     dead: false,     // battery ran out
     drain: 0,        // current battery change per second (for the readout)
@@ -707,7 +730,7 @@
     var anyLimit = map.hazardKeys().some(function (k) { return map.hazardLimit(k) !== null; });
     avoidNote.textContent = anyLimit
       ? ""
-      : "Set your limits under Map layers & hazards (left).";
+      : "Set your limits in the Hazards tab (left).";
     if (!routes) {
       summary.appendChild(el("p", "empty", planMessage));
       return;
@@ -973,7 +996,8 @@
   // never blocks it, so it can always drive back out.
   function limitAhead(next) {
     var here = rover.sample;
-    if (next.slope > MAX_SLOPE && next.slope > here.slope) return "steepSlope";
+    // Driving by hand, nothing stops you onto steep ground: the physics does.
+    if (rover.mode === "auto" && next.slope > MAX_SLOPE && next.slope > here.slope) return "steepSlope";
     if (avoidBox.checked && !zoneOf(here) && zoneOf(next)) return "zone";
     return null;
   }
@@ -1016,7 +1040,8 @@
     var mul = speedMul();
     rover.stuck = rover.sample.dustRisk > DEEP_SAND;
     if (rover.stuck && !sandExit) sandExit = nearestFirmGround(rover.pos); // started in deep sand: no tracks to follow
-    var factor = speedFactor(rover.sample) * (rover.stuck ? STUCK_FACTOR : throttle < 0 ? REVERSE_FACTOR : 1);
+    var factor = speedFactor(rover.sample) * (rover.stuck ? STUCK_FACTOR : throttle < 0 ? REVERSE_FACTOR : 1) *
+      (1 - rover.sink);
     var target = throttle * DRIVE_SPEED * mul * factor;
     // Braking (letting go) is quicker than accelerating.
     rover.speed += (target - rover.speed) * (1 - Math.exp(-dt * (throttle ? ACCEL : ACCEL * 2.5)));
@@ -1056,6 +1081,92 @@
     rover.pos = { nx: nx, ny: ny };
   }
 
+  // ---- physics: sinking in sand, sliding and tipping on slopes ----------------
+
+  // Unit vector pointing downhill, in map-width distance units, or null on flat ground.
+  function downhill(p) {
+    var h = 0.004;
+    var e = function (x, y) { return data.sampleTerrainAt(Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))).elevation; };
+    var gx = (e(p.nx + h, p.ny) - e(p.nx - h, p.ny)) / (2 * h);
+    var gy = (e(p.nx, p.ny + h / ASPECT) - e(p.nx, p.ny - h / ASPECT)) / (2 * h);
+    var len = Math.sqrt(gx * gx + gy * gy);
+    if (!isFinite(len) || len < 1e-9) return null;
+    return { x: -gx / len, y: -gy / len };
+  }
+
+  // Ends the mission for a physical reason: "sand" (trapped) or "tipped".
+  function fail(reason) {
+    rover.dead = true;
+    rover.failure = reason;
+    rover.sliding = false;
+    rover.playing = false;
+    rover.speed = 0;
+    if (reason === "tipped") rover.tumble = 0;
+    syncControls();
+  }
+
+  function stepPhysics(dt) {
+    var s = rover.sample;
+    var mul = speedMul();
+
+    // The roll down the slope after tipping over.
+    if (rover.failure === "tipped" && rover.tumble < TUMBLE_TIME) {
+      rover.tumble += dt;
+      var dn = rover.tumbleDir;
+      if (dn) {
+        var v = DRIVE_SPEED * 2.5 * (1 - rover.tumble / TUMBLE_TIME);
+        var tx = rover.pos.nx + dn.x * v * dt, ty = rover.pos.ny + dn.y * v * dt / ASPECT;
+        if (tx > 0 && tx < 1 && ty > 0 && ty < 1) rover.pos = { nx: tx, ny: ty };
+      }
+      return;
+    }
+    if (rover.dead || rover.mode !== "manual") {
+      rover.sliding = false;
+      return;
+    }
+    var throttle = (input.up ? 1 : 0) - (input.down ? 1 : 0);
+
+    // Sand: sinkage builds while the wheels work loose sand.
+    var sand = Math.max(0, (s.dustRisk - SINK_SAND) / (1 - SINK_SAND));
+    if (sand > 0 && throttle) {
+      var spinning = rover.blocked === "deepSand" || Math.abs(rover.speed) < DRIVE_SPEED * 0.05;
+      var rate = SINK_RATE * sand * (throttle < 0 ? SINK_REVERSE : 1) * (spinning ? SINK_SPIN : 1);
+      rover.sink = Math.min(1, rover.sink + rate * dt * mul);
+      if (rover.sink >= 1) { fail("sand"); return; }
+    } else if (sand === 0 && rover.speed) {
+      rover.sink = Math.max(0, rover.sink - SINK_RECOVER * dt * mul);
+    }
+
+    // Slopes: gravity pulls downhill, and over the tipping slope it tilts over.
+    rover.sliding = false;
+    if (s.slope > SLIDE_SLOPE) {
+      var dir = downhill(rover.pos);
+      if (dir) {
+        // How side-on Ridgeback is to the slope: 0 straight up/down, 1 across.
+        var side = Math.abs(Math.cos(rover.heading) * dir.y - Math.sin(rover.heading) * dir.x);
+        var v2 = SLIDE_RATE * (s.slope - SLIDE_SLOPE) * mul;
+        var nx = rover.pos.nx + dir.x * v2 * dt, ny = rover.pos.ny + dir.y * v2 * dt / ASPECT;
+        if (nx > 0 && nx < 1 && ny > 0 && ny < 1) {
+          movedSincePlan += mapDist(rover.pos, { nx: nx, ny: ny });
+          rover.pos = { nx: nx, ny: ny };
+          rover.sliding = true;
+        }
+        var tipSlope = MAX_SLOPE * (1 - SIDE_TIP * side);
+        if (s.slope > tipSlope) {
+          rover.tilt = Math.min(1, rover.tilt + dt * mul / TIP_TIME * (1 + (s.slope - tipSlope) * 4));
+          if (rover.tilt >= 1) {
+            rover.tumbleDir = dir;
+            rover.tumbleSide = side > 0.5 ? 1 : 0;
+            fail("tipped");
+            return;
+          }
+          return;
+        }
+      }
+    }
+    rover.tilt = Math.max(0, rover.tilt - dt * mul / TIP_TIME);
+  }
+
   // Battery: driving drains it (more uphill and in the cold), standing still
   // in sunlight recharges it (clear-air rate: there is no dust-opacity data here).
   function stepBattery(dt, prevElevation) {
@@ -1083,6 +1194,7 @@
     rover.battery = Math.max(0, Math.min(100, rover.battery + rate * dt));
     if (rover.battery <= 0 && !rover.dead) {
       rover.dead = true;
+      rover.failure = "battery";
       rover.playing = false;
       rover.speed = 0;
       syncControls();
@@ -1112,6 +1224,8 @@
       stepAuto(dt);
       if (rover.playing) everMoved = true;
     }
+    refreshSample();
+    stepPhysics(dt);
     refreshSample();
     if (rover.sample.dustRisk <= DEEP_SAND) sandExit = { nx: rover.pos.nx, ny: rover.pos.ny };
     stepBattery(dt, prevElevation);
@@ -1163,7 +1277,12 @@
 
   // content.js status key for the rover's situation, most serious first.
   function statusKey() {
+    if (rover.failure === "sand") return "trapped";
+    if (rover.failure === "tipped") return "tipped";
     if (rover.dead) return "failed";
+    if (rover.tilt > 0.05) return "tipping";
+    if (rover.sliding) return "sliding";
+    if (rover.sink > 0.05 && rover.sample.dustRisk > SINK_SAND) return "sinking";
     if (rover.blocked === "deepSand" || rover.blocked === "steepSlope") return "stuck";
     if (rover.battery < CRITICAL_BATTERY) return "critical";
     if (rover.battery < LOW_BATTERY) return "lowBattery";
@@ -1205,7 +1324,13 @@
     rbLimit.textContent = lk ? t("rover.limits." + lk) : "";
     var hk = hintKey();
     rbHint.textContent = hk ? t("rover.hints." + hk) : "";
-    if (batteryAlert) batteryAlert.hidden = !rover.dead;
+    if (batteryAlert) {
+      batteryAlert.hidden = !rover.dead || (rover.failure === "tipped" && rover.tumble < TUMBLE_TIME);
+      // One alert, worded for whatever ended the mission.
+      var why = rover.failure === "sand" ? "sandAlert" : rover.failure === "tipped" ? "tipAlert" : "batteryAlert";
+      document.getElementById("battery-alert-title").textContent = t("rover." + why + ".title");
+      document.getElementById("battery-alert-text").textContent = t("rover." + why + ".text");
+    }
   }
 
   // Battery empty: a pulsing alert in the middle of the screen; its button
@@ -1245,9 +1370,9 @@
   var LOOK_AHEAD_M = 400;      // how far ahead Ridgeback watches for hazards
   var LOOK_STEP_M = 20;
   var WARN_HOLD = 1.5;         // seconds a warning lingers once clear, so it doesn't flicker
-  // Near sand: the sand to avoid (over the caution limit) lights up blue, and
+  // Near sand: the sand to avoid (over the caution limit) lights up red, and
   // the rest of the mapped sand soft yellow, so you can see all of it without
-  // a sea of blue. Steep ground shows just its caution zone.
+  // a sea of red. Steep ground shows just its caution zone.
   var WARN_UNDER = { dustRisk: 0 };
   var hazardWarnEl = document.getElementById("hazard-warning");
   var warnLast = null;         // last hazard seen: { key, level, m }
@@ -1346,6 +1471,10 @@
     addRow(list, "Power", rover.watts > 0.5 ? "+" + Math.round(rover.watts) + " W charging"
       : rover.watts < -0.5 ? Math.round(-rover.watts) + " W draw" : "Idle");
     addRow(list, "Speed", pct(Math.abs(rover.speed) / (DRIVE_SPEED * speedMul())) + " of top speed");
+    // Physics gauges: only while they matter.
+    if (rover.sink > 0.005) map.addRow(list, "Wheels sunk", pct(rover.sink) + (rover.sink > 0.6 ? " · back out!" : ""), "dustRisk", rover.sink > 0.3);
+    if (rover.tilt > 0.005) map.addRow(list, "Tipping", pct(rover.tilt) + " · get off the slope", "slope", true);
+    else if (rover.sliding) addRow(list, "Sliding", "downhill");
     if (dest) addRow(list, "To destination", distText(mapDist(rover.pos, dest)));
     map.addRow(list, "Slope", pct(s.slope) + " (limit " + pct(MAX_SLOPE) + ")", "slope", map.isOverHazardLimit("slope", s.slope));
     telemetry.appendChild(list);
@@ -1404,6 +1533,12 @@
     rover.battery = 100;
     rover.dead = false;
     rover.stuck = false;
+    rover.sink = 0;
+    rover.tilt = 0;
+    rover.sliding = false;
+    rover.failure = null;
+    rover.tumble = 0;
+    if (scene3d && scene3d.resetPose) scene3d.resetPose();
     everMoved = false;
     var site = sites[fromSelect.value];
     if (site) teleport(site);
@@ -2026,6 +2161,13 @@
       var zAxis = new T.Vector3().crossVectors(xAxis, up).normalize();
       basis.makeBasis(xAxis, up, zAxis);
       targetQuat.setFromRotationMatrix(basis);
+      // Tipped over: roll onto its side (side-on) or flip end over end.
+      var tipT = rover.failure === "tipped" ? Math.min(1, rover.tumble / TUMBLE_TIME) : 0;
+      if (tipT || rover.tilt > 0) {
+        var lean = tipT ? (rover.tumbleSide ? Math.PI * 0.55 + tipT * Math.PI * 0.45 : Math.PI * tipT) : rover.tilt * 0.25;
+        var axis = rover.tumbleSide || !tipT ? zAxis : xAxis;
+        targetQuat.premultiply(new T.Quaternion().setFromAxisAngle(axis, lean * (tipT ? Math.min(1, tipT * 1.5) : 1)));
+      }
       if (!rover3d.userData.placed) {
         rover3d.quaternion.copy(targetQuat);
         rover3d.userData.placed = true;
@@ -2033,11 +2175,13 @@
         rover3d.quaternion.slerp(targetQuat, 1 - Math.exp(-dt * 8));
       }
       var groundY = (F.y + Bk.y + Rt.y + Lt.y) / 4;
-      rover3d.position.set(c.x, Math.max(groundY, c.y - 0.1), c.z);
+      // Wheels sunk into sand: the whole rover settles lower.
+      rover3d.position.set(c.x, Math.max(groundY, c.y - 0.1) - rover.sink * R.wheelRadius * 1.1, c.z);
 
       // Wheels roll with the distance covered; they spin in place when dug in.
       var worldSpeed = rover.speed * api.planeWidth;
-      var spinning = rover.blocked === "deepSand" && input.up && !rover.dead;
+      var spinning = (rover.blocked === "deepSand" || (rover.sink > 0.3 && Math.abs(rover.speed) < DRIVE_SPEED * 0.1)) &&
+        (input.up || input.down) && !rover.dead;
       var spin = spinning ? 4 : worldSpeed;
       wheels.forEach(function (w) { w.rotation.x += spin * dt / R.wheelRadius; });
 
@@ -2085,7 +2229,10 @@
       api.camera.lookAt(tx, ty + 1.2, tz);
     });
 
-    return { setRoutes: setRoutes, resetTrail: resetTrail };
+    // After Start over: snap upright instead of slowly rolling back.
+    function resetPose() { rover3d.userData.placed = false; }
+
+    return { setRoutes: setRoutes, resetTrail: resetTrail, resetPose: resetPose };
   }
 
   // ---- start ----------------------------------------------------------------

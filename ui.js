@@ -63,7 +63,7 @@
   // Colors are chosen to stand out from the red-brown terrain.
   var HAZARDS = [
     { key: "slope", color: [236, 72, 255], pattern: "hatch", patternName: "hatched" },          // magenta
-    { key: "dustRisk", color: [40, 215, 255], pattern: "particles", patternName: "drifting sand" } // cyan
+    { key: "dustRisk", color: [255, 52, 40], pattern: "particles", patternName: "drifting sand" } // red
   ];
   var HAZARD_SMOOTH_RADIUS = 3;  // px; smooths zone edges so they don't speckle
   var HAZARD_EDGE = 2;           // px width of the colored zone border
@@ -295,7 +295,7 @@
   // hazard zone for routes, driving or readouts (isOver/hazardLimit ignore it).
   // The warning can also show the rest of that hazard (values between `under`
   // and the warning limit) as a soft yellow layer, e.g. all mapped sand in
-  // yellow with the sand to avoid in blue.
+  // yellow with the sand to avoid in red.
   var hazardWarning = null; // { key, limit, under } from rover.js
   var WARN_UNDER_COLOR = [255, 214, 79];
   var WARN_UNDER_ALPHA = 0.3;
@@ -729,18 +729,29 @@
       enabled[name] = index === 0; // first layer on by default
       opacity[name] = 1;
       var row = document.createElement("div");
-      row.className = "layer-row";
+      row.className = "layer-row" + (enabled[name] ? " is-on" : "");
       var label = document.createElement("label");
       var box = document.createElement("input");
       box.type = "checkbox";
       box.checked = enabled[name];
       box.addEventListener("change", function () {
         enabled[name] = box.checked;
+        row.classList.toggle("is-on", box.checked);
         render();
       });
       label.appendChild(box);
-      label.appendChild(document.createTextNode(name));
+      var nameEl = document.createElement("span");
+      nameEl.className = "layer-name";
+      nameEl.textContent = name;
+      label.appendChild(nameEl);
       var info = data.getLayerInfo ? data.getLayerInfo(name) : null;
+      // A strip showing the layer's colour scale, so each layer is recognisable.
+      var style = (info && FIELD_STYLES[info.field]) || FALLBACK_STYLE;
+      var ramp = document.createElement("span");
+      ramp.className = "layer-ramp";
+      ramp.style.background = "linear-gradient(90deg," + style.ramp.map(function (c) { return css(c); }).join(",") + ")";
+      ramp.setAttribute("aria-hidden", "true");
+      row.appendChild(ramp);
       if (info) {
         label.title = info.description;
         var kind = document.createElement("span");
