@@ -53,6 +53,14 @@ export const content = {
       inIt: "In deep sand: drive out the way you came",
     },
 
+    // Notices when the battery drops to 20%, 10% and 5% (rover.js).
+    batteryWarning: {
+      20: { title: "Battery at 20%", text: "Head for flat, sunny ground and plan a stop to recharge." },
+      10: { title: "Battery at 10%", text: "Stop soon and press Wait and recharge so the solar panels can refill it." },
+      5: { title: "Battery at 5%!", text: "Ridgeback is about to run out of power. Stop and recharge now." },
+      dismiss: "Dismiss",
+    },
+
     batteryAlert: {
       title: "Battery empty",
       text: "Ridgeback has run out of power and can't move. The mission is over.",

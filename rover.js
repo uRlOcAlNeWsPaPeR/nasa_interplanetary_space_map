@@ -891,6 +891,8 @@
     document.getElementById("battery-alert-title").textContent = t("rover.batteryAlert.title");
     document.getElementById("battery-alert-text").textContent = t("rover.batteryAlert.text");
     document.getElementById("battery-alert-reset").textContent = t("rover.batteryAlert.button");
+    document.getElementById("battery-warning-recharge").textContent = t("rover.buttons.recharge");
+    document.getElementById("battery-warning-close").setAttribute("aria-label", t("rover.batteryWarning.dismiss"));
     document.getElementById("route-notice-title").textContent = t("rover.noRoute.title");
     document.getElementById("route-notice-ok").textContent = t("rover.noRoute.ok");
     var battery = TEXT && TEXT.rover.stats.battery;
@@ -1204,6 +1206,7 @@
     var hk = hintKey();
     rbHint.textContent = hk ? t("rover.hints." + hk) : "";
     if (batteryAlert) batteryAlert.hidden = !rover.dead;
+    checkBatteryWarnings();
   }
 
   // Battery empty: a pulsing alert in the middle of the screen; its button
@@ -1213,6 +1216,56 @@
     document.getElementById("rb-reset").click();
     batteryAlert.hidden = true;
   });
+
+  // Battery warnings: a notice at the bottom of the screen the first time the
+  // battery drops to 20%, 10% and 5% (and again if it recharges well above a
+  // level and drops back). It hides itself after a few seconds.
+  var BATTERY_WARNINGS = [20, 10, 5];
+  var WARN_REARM = 3;          // % above a level before its warning can show again
+  var WARN_SHOW_S = 8;         // seconds a warning stays up
+  var batteryWarned = {};
+  var batteryWarnEl = document.getElementById("battery-warning");
+  var batteryWarnTimer = null;
+
+  function hideBatteryWarning() {
+    clearTimeout(batteryWarnTimer);
+    if (batteryWarnEl) batteryWarnEl.hidden = true;
+  }
+
+  function showBatteryWarning(level) {
+    var w = TEXT && TEXT.rover.batteryWarning ? TEXT.rover.batteryWarning[level] : null;
+    batteryWarnEl.className = "battery-warning battery-warning--" + level;
+    document.getElementById("battery-warning-title").textContent = w ? w.title : "Battery at " + level + "%";
+    document.getElementById("battery-warning-text").textContent = w ? w.text : "";
+    batteryWarnEl.hidden = false;
+    clearTimeout(batteryWarnTimer);
+    batteryWarnTimer = setTimeout(hideBatteryWarning, WARN_SHOW_S * 1000);
+  }
+
+  function checkBatteryWarnings() {
+    if (!batteryWarnEl) return;
+    if (rover.dead) { hideBatteryWarning(); return; }
+    BATTERY_WARNINGS.forEach(function (level) {
+      if (rover.battery > level + WARN_REARM) batteryWarned[level] = false;
+    });
+    // The lowest level just reached (higher ones are then treated as shown too).
+    for (var i = BATTERY_WARNINGS.length - 1; i >= 0; i--) {
+      var level = BATTERY_WARNINGS[i];
+      if (rover.battery <= level && !batteryWarned[level]) {
+        BATTERY_WARNINGS.forEach(function (l) { if (l >= level) batteryWarned[l] = true; });
+        showBatteryWarning(level);
+        break;
+      }
+    }
+  }
+
+  if (batteryWarnEl) {
+    document.getElementById("battery-warning-recharge").addEventListener("click", function () {
+      document.getElementById("rb-recharge").click();
+      hideBatteryWarning();
+    });
+    document.getElementById("battery-warning-close").addEventListener("click", hideBatteryWarning);
+  }
 
   function renderRisk() {
     if (!rover.sample) {

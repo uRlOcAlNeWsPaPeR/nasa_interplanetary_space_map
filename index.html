@@ -406,6 +406,42 @@
       line-height: 1;
       font-size: 16px;
     }
+    /* Battery warnings at 20% / 10% / 5% (rover.js): a notice at the bottom. */
+    .battery-warning {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      z-index: 45;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: min(460px, calc(100vw - 32px));
+      padding: 10px 12px;
+      color: var(--text);
+      background: var(--panel);
+      border: 2px solid var(--bw);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    }
+    .battery-warning[hidden] { display: none; }
+    .battery-warning-text { flex: 1; font-size: 13px; line-height: 1.35; }
+    .battery-warning-text strong { display: block; font-size: 15px; color: var(--bw); }
+    .battery-warning button { flex: none; }
+    #battery-warning-close { width: 28px; height: 28px; padding: 0; font-size: 16px; line-height: 1; }
+    .battery-warning--20 { --bw: #f2a516; }
+    .battery-warning--10 { --bw: #ff7a1a; }
+    .battery-warning--5 { --bw: #ff4d3d; animation: battery-warn-pulse 1s ease-in-out infinite alternate; }
+    @keyframes battery-warn-pulse {
+      from { box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+      to { box-shadow: 0 0 28px 8px rgba(255, 77, 61, .55); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .battery-warning--5 { animation: none; }
+    }
+    @media (max-width: 560px) {
+      .battery-warning { bottom: auto; top: 64px; }
+    }
     /* Battery empty (rover.js): pulses slowly (well under 3 flashes a second),
        and holds still for people who ask for reduced motion. */
     #battery-alert {
@@ -724,6 +760,16 @@
       <button id="route-notice-ok" type="button" class="primary"></button>
     </div>
   </dialog>
+
+  <!-- Battery at 20%, 10% and 5% (rover.js); wording from content.js -->
+  <div id="battery-warning" class="battery-warning" role="alert" hidden>
+    <div class="battery-warning-text">
+      <strong id="battery-warning-title"></strong>
+      <span id="battery-warning-text"></span>
+    </div>
+    <button id="battery-warning-recharge" type="button" class="primary"></button>
+    <button id="battery-warning-close" type="button" aria-label="Dismiss">&times;</button>
+  </div>
 
   <!-- Battery empty (rover.js); wording from content.js -->
   <div id="battery-alert" role="alert" hidden>
