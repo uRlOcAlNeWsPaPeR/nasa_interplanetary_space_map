@@ -53,10 +53,6 @@ export const content = {
       button: "Start over",
     },
     // The same alert when driving by hand ends the mission another way.
-    sandAlert: {
-      title: "Trapped in sand",
-      text: "Ridgeback's wheels sank too deep to drive out. NASA's Spirit rover was lost the same way in 2009. Next time, back out as soon as the wheels start to sink.",
-    },
     tipAlert: {
       title: "Ridgeback tipped over",
       text: "The slope was too steep and Ridgeback rolled. Driving across a slope tips it sooner than going straight up or down.",
@@ -81,8 +77,8 @@ export const content = {
 
     limits: {
       title: "What Ridgeback can't do",
-      steepSlope: "On steep slopes it slides downhill, and past about 60% it tips over. Across a slope it tips sooner.",
-      deepSand: "Wheels sink in loose sand. Keep pushing and it gets trapped for good; back out the way you came as soon as it starts to sink.",
+      steepSlope: "On purple slopes (over your slope limit) it starts to tip, and tips over if you stay on. Across a slope it goes much sooner.",
+      deepSand: "In red sand (over your sand limit) the front wheels dig in. It slows right down and the rear wheels push, draining the battery fast. Reverse out.",
       extremeCold: "Battery drains much faster in extreme cold. Real rover cells hold about a quarter less charge at −20 °C.",
       dustStorm: "Solar panels barely work during a dust storm.",
     },
@@ -96,10 +92,9 @@ export const content = {
       stuck: "Ridgeback is stuck. Turn toward the way you came in and drive out, then choose a safer route.",
       arrived: "You made it. Ridgeback has reached the destination.",
       failed: "Ridgeback has run out of power. The mission is over.",
-      sinking: "The wheels are sinking into the sand! Reverse out the way you came before Ridgeback is trapped.",
+      sinking: "Front wheels stuck in the sand! The rear wheels are pushing hard and the battery is draining fast. Reverse to pull free.",
       sliding: "Ridgeback is sliding downhill. Get onto flatter ground.",
-      tipping: "Ridgeback is about to tip over! Turn straight downhill or get off this slope now.",
-      trapped: "Ridgeback is trapped in the sand. The mission is over.",
+      tipping: "Ridgeback is starting to tip over! Get off this purple slope now, straight up or down, not across it.",
       tipped: "Ridgeback tipped over on the slope. The mission is over.",
     },
 
@@ -348,8 +343,8 @@ export const content = {
       { name: "Reset layers", text: "Back to just the satellite image." },
     ],
     hazards: [
-      { name: "Slope (magenta)", text: "The steepest ground you'll drive on. Ground over it is marked magenta. On very steep ground Ridgeback slides and can tip over." },
-      { name: "Mapped sand (red)", text: "The most sand you'll drive through. Ground over it is marked red. In deep sand Ridgeback's wheels sink and it can get trapped." },
+      { name: "Slope (purple)", text: "The steepest ground you'll drive on. Ground over it is marked purple. Drive onto purple by hand and Ridgeback starts to tip, then tips over if you stay on." },
+      { name: "Mapped sand (red)", text: "The most sand you'll drive through. Ground over it is marked red. Drive into red by hand and the front wheels get stuck, costing lots of battery to get out." },
       { name: "Change my limits", text: "Set new limits. Routes go the long way round anything over them." },
     ],
     map: [
