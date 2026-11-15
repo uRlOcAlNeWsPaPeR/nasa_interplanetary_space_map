@@ -4,6 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Interplanetary Survival Guide: Martian Map</title>
+  <!-- Add to Home Screen: opens full-screen like an app -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#12181f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Martian Map">
   <style>
     /* Theme from ridgeback-rover-3d.html, light and dark. */
     :root {
@@ -677,6 +686,8 @@
       #minimap { bottom: 140px; }
     }
   </style>
+  <!-- Phone layout: bottom sheet, bigger controls (phone.js sets body.phone) -->
+  <link rel="stylesheet" href="phone.css">
 </head>
 <body>
   <div id="world"></div>
@@ -953,5 +964,6 @@
   <script src="rover.js"></script>
   <script src="walk-core.js"></script>
   <script src="walk.js"></script>
+  <script src="phone.js"></script>
 </body>
 </html>

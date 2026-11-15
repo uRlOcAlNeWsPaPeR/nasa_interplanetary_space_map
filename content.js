@@ -342,4 +342,42 @@ export const content = {
       { name: "Expand map", text: "Makes the map bigger. Right-click any spot to place a point; double-click the point to walk or drive there." },
     ],
   },
+
+  // Phone layout (phone.js): the bottom sheet's tabs.
+  phone: {
+    tabs: { plan: "Plan", drive: "Drive", walk: "Walk", map: "Map", info: "Info" },
+    sheet: "Panels",
+    handle: "Resize the panel",
+    manualHint: "Hold the arrow buttons to drive. Press Auto to plan a route from here.",
+  },
+
+  // Touch screens have no right-click or hover: these replace the wording
+  // above on phones and tablets (keys are paths into `content`).
+  touch: {
+    "rover.hints.firstMove": "Pick a destination above, or press and hold a spot on the map or the ground and choose Drive here. Then pick a route and press Start drive in the Drive tab.",
+    "walk.intro": "The coloured ground is where an astronaut can walk from Ridgeback and get back safely. Press and hold a spot in it and choose Walk here.",
+    "walk.status.pick": "Press and hold a spot in the coloured area, then choose Walk here.",
+    "help.plan.0.text": "Pick where Ridgeback sets off and where it should go. Or press and hold a spot on the map or the ground and choose Drive here.",
+    "help.drive.0.text": "Auto follows the chosen route. Manual lets you steer with the arrow buttons.",
+    "help.view.0.text": "Camera follows behind Ridgeback. While it's stopped, drag to look around and pinch to zoom; once it moves, the view comes back behind it.",
+    "help.inspect.0.name": "Press and hold a spot",
+    "help.inspect.0.text": "Places a point on the map or the ground and shows its readings here. Tap the point to walk or drive there.",
+    "help.walk.0.name": "Press and hold a spot",
+    "help.walk.0.text": "Press and hold a spot inside the coloured area and choose Walk here to plan the safest walk there and back.",
+    "help.map.0.text": "Zoom the map in or out, or pinch it. Drag to move around when zoomed.",
+    "help.map.2.text": "Press and hold any spot to place a point and choose to walk or drive there.",
+  },
 };
+
+// On a touch screen (or with ?touch=1 in the address, for testing), swap in
+// the touch wording before any script reads it.
+const touchScreen = typeof window !== "undefined" && typeof window.matchMedia === "function" &&
+  (window.matchMedia("(pointer: coarse)").matches || /[?&]touch=1\b/.test(window.location.search));
+if (touchScreen) {
+  Object.keys(content.touch).forEach((path) => {
+    const keys = path.split(".");
+    const last = keys.pop();
+    const parent = keys.reduce((obj, k) => (obj ? obj[k] : undefined), content);
+    if (parent && last in parent) parent[last] = content.touch[path];
+  });
+}

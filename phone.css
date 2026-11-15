@@ -1,0 +1,241 @@
+/*
+ * phone.css -- the phone layout (phone.js sets body.phone on narrow screens
+ * and short landscape screens). Desktop is untouched: every rule here is
+ * scoped to body.phone, except the touch fixes for the two canvases.
+ */
+
+/* Press-and-hold on the ground or the map must not select text or pop up
+   the phone's own menu. */
+#world canvas, #map { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
+body.phone {
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --sheet-h: 72px;
+  --sheet-w: 0px;
+  font-size: 15px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+body.phone #map { touch-action: none; }
+
+/* ---- thumb-sized controls ---- */
+body.phone button { min-height: 44px; padding: 8px 12px; }
+body.phone select { min-height: 44px; font-size: 16px; } /* 16px: no zoom-in on iPhone */
+body.phone input[type="checkbox"] { width: 22px; height: 22px; }
+body.phone input[type="range"] { min-height: 32px; }
+body.phone .help-btn { width: 32px; height: 32px; min-height: 32px; font-size: 14px; }
+body.phone .route-card { padding: 12px 12px 12px 38px; }
+body.phone .route-card.is-selected { padding: 11px 11px 11px 37px; }
+body.phone .route-card input { left: 12px; top: 14px; width: 20px; height: 20px; }
+body.phone details.more > summary { min-height: 40px; font-size: 13px; }
+body.phone .layer-row { grid-template-columns: 1fr 120px; padding: 10px 12px; }
+
+/* ---- what the sheet replaces ---- */
+body.phone #hud-right,
+body.phone #panels-toggle,
+body.phone #map-expand,
+body.phone #hover-readout,
+body.phone #rb-name,
+body.phone #rb-hint { display: none !important; }
+
+/* ---- status at the top: battery, what Ridgeback is doing, risk ---- */
+body.phone #hud-left {
+  top: calc(8px + var(--safe-t));
+  left: calc(8px + var(--safe-l));
+  right: calc(8px + var(--safe-r));
+  width: auto;
+  max-height: none;
+  gap: 6px;
+  overflow: visible;
+}
+body.phone #rb-card { padding: 9px 12px; border-radius: 12px; }
+body.phone #rb-card .row { margin-bottom: 5px; font-weight: 600; }
+body.phone #rb-status { margin: 7px 0 0; min-height: 0; font-size: 13px; line-height: 1.35; }
+body.phone #rb-limit {
+  margin: 4px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+body.phone #rb-limit:empty { display: none; }
+body.phone #risk-hud {
+  position: static;
+  transform: none;
+  width: auto;
+  padding: 7px 12px;
+  border-radius: 12px;
+}
+body.phone #risk-hud[hidden] { display: none; }
+body.phone #sand-distance-value { font-size: 26px; }
+
+/* ---- the bottom sheet ---- */
+#sheet { display: none; }
+body.phone #sheet {
+  position: fixed;
+  left: var(--safe-l);
+  right: var(--safe-r);
+  bottom: 0;
+  z-index: 30;
+  height: var(--sheet-h);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, .3);
+  backdrop-filter: blur(10px);
+  transition: height .22s ease;
+}
+body.phone #sheet.is-dragging { transition: none; }
+#sheet-head { flex: none; touch-action: none; user-select: none; }
+#sheet-handle {
+  display: block;
+  width: 100%;
+  min-height: 22px !important;
+  height: 22px;
+  padding: 0 !important;
+  border: none;
+  background: transparent;
+  cursor: grab;
+}
+#sheet-handle::before {
+  content: "";
+  display: block;
+  width: 40px;
+  height: 5px;
+  margin: 0 auto;
+  border-radius: 3px;
+  background: var(--muted);
+  opacity: .55;
+}
+#sheet-tabs { display: flex; gap: 4px; padding: 0 8px 8px; }
+#sheet-tabs button {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 2px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+#sheet-tabs button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+#sheet[data-state="peek"] #sheet-tabs button[aria-selected="true"] { background: var(--btn); color: var(--text); }
+#sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 14px calc(16px + var(--safe-b));
+}
+#sheet[data-state="peek"] #sheet-body { visibility: hidden; }
+.sheet-pane { display: grid; gap: 14px; }
+.sheet-pane[hidden] { display: none; }
+
+/* Panels inside the sheet lose their card look: the sheet is the card. */
+#sheet .card {
+  background: none;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 0;
+  border-radius: 0;
+}
+#sheet #route-panel > summary,
+#sheet #rover-panel > summary,
+#sheet #walk-panel > summary,
+#sheet #info-panel > summary { display: none; }
+#sheet #route-panel:not([open]),
+#sheet #rover-panel:not([open]),
+#sheet #walk-panel:not([open]),
+#sheet #info-panel:not([open]) { display: none; }
+#sheet #data-panel { padding-top: 10px; border-top: 1px solid var(--line); }
+#sheet #data-panel > summary { min-height: 40px; align-items: center; }
+#sheet .learn { margin-top: 0; }
+#sheet .button-row[data-help="rover"] { margin: 0; }
+#sheet #rb-power { max-height: none; }
+
+/* The map, full width in the Map tab. */
+#sheet #minimap {
+  position: static;
+  width: auto;
+  transition: none;
+}
+#sheet #minimap.is-expanded { width: auto; }
+#sheet .map-toolbar { gap: 6px; margin-bottom: 8px; }
+#sheet .map-toolbar button { min-width: 44px; padding: 6px 10px; font-size: 15px; }
+#sheet #map-stage { border-radius: 10px; }
+
+/* ---- drive pad: bigger, above the sheet ---- */
+body.phone #pad {
+  z-index: 20;
+  right: calc(10px + var(--safe-r));
+  bottom: calc(var(--sheet-h) + 10px);
+  grid-template-columns: repeat(3, 58px);
+  grid-template-rows: repeat(2, 58px);
+  gap: 7px;
+  transition: bottom .22s ease;
+}
+body.phone #pad button { font-size: 24px; min-height: 0; border-radius: 14px; box-shadow: 0 4px 14px rgba(0, 0, 0, .3); }
+body.sheet-full #pad { display: none; }
+
+/* ---- pop-ups and warnings ---- */
+body.phone #choice-popup {
+  left: calc(10px + var(--safe-l)) !important;
+  right: calc(10px + var(--safe-r));
+  top: auto !important;
+  bottom: calc(var(--sheet-h) + 10px);
+  width: auto;
+  padding: 14px 16px 16px;
+  border-radius: 16px;
+}
+body.phone #choice-title { font-size: 15px; margin-bottom: 12px; }
+body.phone #choice-popup .button-row button { min-height: 48px; font-size: 16px; }
+body.phone #choice-close { top: 8px; right: 8px; width: 36px; height: 36px; min-height: 36px; }
+body.phone .battery-warning {
+  top: calc(8px + var(--safe-t));
+  bottom: auto;
+  width: calc(100vw - 16px - var(--safe-l) - var(--safe-r));
+}
+body.phone #battery-warning-close { width: 40px; height: 40px; min-height: 40px; }
+body.phone .app-dialog, body.phone #walk-confirm { padding: 18px; }
+body.phone .app-dialog .button-row button, body.phone #walk-confirm .button-row button { min-height: 48px; }
+body.phone .help-pop { font-size: 13px; }
+
+/* ---- sideways: the sheet becomes a panel on the right ---- */
+body.phone.landscape #hud-left { right: auto; width: min(300px, 40vw); }
+body.phone.landscape #rb-card { padding: 7px 10px; }
+body.phone.landscape #rb-status { font-size: 12px; }
+body.phone.landscape #sheet {
+  left: auto;
+  top: calc(6px + var(--safe-t));
+  right: calc(6px + var(--safe-r));
+  bottom: auto;
+  width: min(380px, 48vw);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  transition: height .2s ease;
+}
+body.phone.landscape #sheet-handle { display: none; }
+body.phone.landscape #sheet-tabs { padding: 6px; }
+body.phone.landscape #sheet-body { padding-bottom: 12px; }
+body.phone.landscape #pad {
+  bottom: calc(10px + var(--safe-b));
+  right: calc(var(--sheet-w) + 14px + var(--safe-r));
+  grid-template-columns: repeat(3, 52px);
+  grid-template-rows: repeat(2, 52px);
+}
+body.phone.landscape.sheet-full #pad { display: grid; }
+body.phone.landscape #choice-popup {
+  right: auto;
+  width: min(320px, 46vw);
+  bottom: calc(10px + var(--safe-b));
+}
+body.phone.landscape .battery-warning { width: min(460px, 52vw); left: calc(8px + var(--safe-l)); transform: none; }

@@ -1029,7 +1029,9 @@
     var throttle = rover.dead ? 0 : (input.up ? 1 : 0) - (input.down ? 1 : 0);
     var steer = rover.dead ? 0 : (input.right ? 1 : 0) - (input.left ? 1 : 0);
     var mul = speedMul();
+    var wasStuck = rover.stuck;
     rover.stuck = rover.sample.dustRisk > DEEP_SAND;
+    if (rover.stuck && !wasStuck && everMoved) buzz([400]); // just dug in
     if (rover.stuck && !sandExit) sandExit = nearestFirmGround(rover.pos); // started in deep sand: no tracks to follow
     // Dug into deep sand: the wheels can't pull forward or turn it; only
     // reversing works (straight back out the way it came).
@@ -1112,6 +1114,7 @@
     rover.drain = rate;
     rover.battery = Math.max(0, Math.min(100, rover.battery + rate * dt));
     if (rover.battery <= 0 && !rover.dead) {
+      buzz([600, 200, 600]);
       rover.dead = true;
       rover.playing = false;
       rover.speed = 0;
@@ -1261,6 +1264,13 @@
   var batteryWarnEl = document.getElementById("battery-warning");
   var batteryWarnTimer = null;
 
+  // A short vibration on phones that allow it (most Android phones; iPhones
+  // don't), so warnings are felt even when nobody's looking at the battery.
+  function buzz(pattern) {
+    if (!navigator.vibrate || document.hidden) return;
+    try { navigator.vibrate(pattern); } catch (err) { /* not allowed yet */ }
+  }
+
   function hideBatteryWarning() {
     clearTimeout(batteryWarnTimer);
     if (batteryWarnEl) batteryWarnEl.hidden = true;
@@ -1272,6 +1282,7 @@
     document.getElementById("battery-warning-title").textContent = w ? w.title : "Battery at " + level + "%";
     document.getElementById("battery-warning-text").textContent = w ? w.text : "";
     batteryWarnEl.hidden = false;
+    buzz(level <= 5 ? [300, 120, 300, 120, 300] : [200, 100, 200]);
     clearTimeout(batteryWarnTimer);
     batteryWarnTimer = setTimeout(hideBatteryWarning, WARN_SHOW_S * 1000);
   }
@@ -1337,6 +1348,7 @@
   var hazardWarnEl = document.getElementById("hazard-warning");
   var warnLast = null;         // last hazard seen: { key, level, m }
   var warnUntil = 0;
+  var buzzedFor = null;        // hazard key the phone last buzzed for
 
   function metresPerWidth() {
     var s = data.getScale ? data.getScale() : null;
@@ -1434,8 +1446,12 @@
     if (!w) {
       hazardWarnEl.hidden = true;
       map.setHazardWarning(null);
+      buzzedFor = null;
       return;
     }
+    // Buzz once when a "can't drive there" warning first appears.
+    if (w.level === "danger" && buzzedFor !== w.key) buzz([150]);
+    buzzedFor = w.level === "danger" ? w.key : null;
     var words = TEXT && TEXT.rover.warnings ? TEXT.rover.warnings[w.key] : null;
     var here = w.m < LOOK_STEP_M;
     var label = words ? words[here ? (w.level === "danger" ? "hereDanger" : "hereCaution") : w.level] : HAZARD_WORDS[w.key];
@@ -2072,11 +2088,34 @@
       if (camButtons[k]) camButtons[k].addEventListener("click", function () { setCamMode(k); });
     });
 
+    // Two fingers: pinch to zoom the chase cam (while stopped, like the wheel).
+    var fingers = {};
+    var pinch = null;
+    function fingerGap() {
+      var f = Object.keys(fingers).map(function (k) { return fingers[k]; });
+      return Math.hypot(f[0].x - f[1].x, f[0].y - f[1].y) || 1;
+    }
+
     api.dom.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "touch") {
+        fingers[e.pointerId] = { x: e.clientX, y: e.clientY };
+        if (Object.keys(fingers).length === 2) {
+          pinch = { gap: fingerGap(), d: cam.d };
+          drag = null; // no looking around mid-pinch
+          return;
+        }
+      }
       drag = { x: e.clientX, y: e.clientY, moved: false };
       try { api.dom.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
     });
     api.dom.addEventListener("pointermove", function (e) {
+      if (e.pointerId in fingers) fingers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      if (pinch) {
+        if (Object.keys(fingers).length === 2 && cam.mode === "chase" && !roverMoving()) {
+          cam.d = Math.min(CAM_MAX, Math.max(CAM_MIN, pinch.d * pinch.gap / fingerGap()));
+        }
+        return;
+      }
       if (!drag) return;
       var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_START_PX) return;
@@ -2093,7 +2132,11 @@
       }
     });
     ["pointerup", "pointercancel"].forEach(function (n) {
-      api.dom.addEventListener(n, function () { drag = null; });
+      api.dom.addEventListener(n, function (e) {
+        drag = null;
+        delete fingers[e.pointerId];
+        if (Object.keys(fingers).length < 2) pinch = null;
+      });
     });
     api.dom.addEventListener("wheel", function (e) {
       if (cam.mode === "chase" && !roverMoving()) cam.d = Math.min(CAM_MAX, Math.max(CAM_MIN, cam.d * Math.exp(e.deltaY * 0.0012)));

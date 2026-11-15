@@ -21,6 +21,8 @@
   var siteLegend = document.getElementById("site-legend");
   var infoBody = document.getElementById("info-body");
   var hoverReadout = document.getElementById("hover-readout");
+  // Phones and tablets (or ?touch=1 for testing): touch gestures and wording.
+  var TOUCH_SCREEN = window.matchMedia("(pointer: coarse)").matches || /[?&]touch=1\b/.test(location.search);
 
   // ---- presentation config (style, not data) --------------------------------
 
@@ -883,7 +885,8 @@
     if (!selected) {
       var hint = document.createElement("p");
       hint.className = "empty";
-      hint.textContent = "Right-click the map or the ground to place a point and see its readings.";
+      hint.textContent = (TOUCH_SCREEN ? "Press and hold" : "Right-click") +
+        " the map or the ground to place a point and see its readings.";
       infoBody.appendChild(hint);
       return;
     }
@@ -1120,6 +1123,73 @@
 
   window.MapUI.onChoose = function (cb) { chooseListeners.push(cb); };
 
+  // ---- touch: press and hold, tap the point -------------------------------------
+  //
+  // Phones have no right-click or double-click. Pressing and holding a spot
+  // places the point and asks Walk / Drive straight away; a tap on the placed
+  // point asks too. A second finger (a pinch) or moving the finger cancels it.
+  // Returns a function for the target's contextmenu handler: Android raises
+  // contextmenu on a long press too, and the point must be placed only once
+  // (it returns true when the touch hold has dealt with it).
+
+  var HOLD_MS = 500;           // how long a press must be held to place a point
+  var HOLD_SLOP = 10;          // px the finger may wander while holding
+  var TOUCH_HIT_PX = 30;       // how close a tap must be to the placed point
+
+  function touchHold(target, spotAt, nearPoint) {
+    var hold = null, fingers = {}, firedAt = -1e9;
+    function count() { return Object.keys(fingers).length; }
+    function fire() {
+      if (!hold || hold.done) return;
+      hold.done = true;
+      clearTimeout(hold.timer);
+      firedAt = performance.now();
+      var p = spotAt(hold.x, hold.y);
+      if (!p) return;
+      selectAt(p);
+      openChoice(hold.x, hold.y);
+    }
+    target.addEventListener("pointerdown", function (e) {
+      if (e.pointerType !== "touch") return;
+      fingers[e.pointerId] = true;
+      if (hold) clearTimeout(hold.timer);
+      hold = count() === 1
+        ? { x: e.clientX, y: e.clientY, t: performance.now(), done: false, timer: setTimeout(fire, HOLD_MS) }
+        : null;
+    });
+    target.addEventListener("pointermove", function (e) {
+      if (!hold || hold.done || e.pointerType !== "touch") return;
+      if (Math.abs(e.clientX - hold.x) + Math.abs(e.clientY - hold.y) > HOLD_SLOP) {
+        clearTimeout(hold.timer);
+        hold.done = true;
+      }
+    });
+    function end(e) {
+      if (e.pointerType !== "touch") return;
+      delete fingers[e.pointerId];
+      if (!hold) return;
+      clearTimeout(hold.timer);
+      var tap = e.type === "pointerup" && !hold.done && performance.now() - hold.t < HOLD_MS;
+      hold = null;
+      if (tap && selected && nearPoint(e.clientX, e.clientY)) openChoice(e.clientX, e.clientY);
+    }
+    target.addEventListener("pointerup", end);
+    target.addEventListener("pointercancel", end);
+    return function handledByHold() {
+      if (performance.now() - firedAt < 1500) return true;
+      if (hold && !hold.done) { fire(); return true; }
+      return false;
+    };
+  }
+
+  // The minimap: hold to place, tap the point to choose.
+  var mapHold = touchHold(canvas, function (x, y) {
+    return eventToNormalized({ clientX: x, clientY: y });
+  }, function (x, y) {
+    var r = canvas.getBoundingClientRect();
+    return Math.hypot(x - (r.left + selected.nx * r.width), y - (r.top + selected.ny * r.height)) <= TOUCH_HIT_PX;
+  });
+
   function showHover(p) {
     if (!p) {
       hoverReadout.textContent = "";
@@ -1138,6 +1208,7 @@
   });
   canvas.addEventListener("contextmenu", function (event) {
     event.preventDefault();
+    if (mapHold()) return; // a long press on a phone: already placed
     selectAt(eventToNormalized(event));
   });
   // Double-click the placed point: Walk or Drive?
@@ -1204,6 +1275,41 @@
     zoomDrag.wasDrag = zoomDrag.moved && zoom2d.s > 1;
   });
 
+  // Two fingers on the map: pinch to zoom around the middle of the fingers.
+  var mapFingers = {};
+  var pinchDist = 0;
+  function fingerSpread() {
+    var f = Object.keys(mapFingers).map(function (k) { return mapFingers[k]; });
+    return {
+      d: Math.hypot(f[0].x - f[1].x, f[0].y - f[1].y),
+      x: (f[0].x + f[1].x) / 2,
+      y: (f[0].y + f[1].y) / 2
+    };
+  }
+  canvas.addEventListener("pointerdown", function (e) {
+    if (e.pointerType !== "touch") return;
+    mapFingers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (Object.keys(mapFingers).length === 2) {
+      zoomDrag.active = false; // the pinch takes over from panning
+      pinchDist = fingerSpread().d;
+    }
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    if (!(e.pointerId in mapFingers)) return;
+    mapFingers[e.pointerId] = { x: e.clientX, y: e.clientY };
+    if (Object.keys(mapFingers).length !== 2 || !pinchDist) return;
+    var s = fingerSpread();
+    var rect = stageEl.getBoundingClientRect();
+    zoomAt(s.d / pinchDist, s.x - rect.left, s.y - rect.top);
+    pinchDist = s.d;
+  });
+  ["pointerup", "pointercancel"].forEach(function (n) {
+    canvas.addEventListener(n, function (e) {
+      delete mapFingers[e.pointerId];
+      if (Object.keys(mapFingers).length < 2) pinchDist = 0;
+    });
+  });
+
   function stageCenter() {
     return { x: stageEl.clientWidth / 2, y: stageEl.clientHeight / 2 };
   }
@@ -1248,7 +1354,9 @@
   function createWorld() {
     var T = window.THREE;
     var renderer = new T.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // Phones and tablets draw at most 1.5 pixels per CSS pixel: smoother, and
+    // easier on the battery, with little visible difference.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, TOUCH_SCREEN ? 1.5 : 2));
     renderer.outputEncoding = T.sRGBEncoding;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = T.PCFSoftShadowMap;
@@ -1452,10 +1560,19 @@
       var p = pick(e);
       if (p) selectAt(p);
     });
-    // Phones have no right-click: a long press (which raises contextmenu) places the point.
+    // Phones have no right-click: pressing and holding places the point and
+    // asks Walk / Drive (touchHold); a tap on the point asks too.
+    var groundHold = touchHold(el, function (x, y) {
+      return pick({ clientX: x, clientY: y });
+    }, function (x, y) {
+      var v = surfacePoint(selected.nx, selected.ny, 0.15).project(camera);
+      if (v.z > 1) return false; // behind the camera
+      var r = el.getBoundingClientRect();
+      return Math.hypot(x - (r.left + (v.x + 1) / 2 * r.width), y - (r.top + (1 - v.y) / 2 * r.height)) <= Math.max(TOUCH_HIT_PX, POINT_HIT_PX_3D);
+    });
     el.addEventListener("contextmenu", function (e) {
       e.preventDefault();
-      if (lastPointer !== "touch") return;
+      if (lastPointer !== "touch" || groundHold()) return;
       var p = pick(e);
       if (p) selectAt(p);
     });
