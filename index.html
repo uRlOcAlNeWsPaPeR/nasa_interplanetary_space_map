@@ -433,6 +433,23 @@
     #walker-2d[hidden] { display: none; }
     .walk-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 8px; color: var(--muted); font-size: 12px; }
     .walk-legend[hidden] { display: none; }
+    .walk-legend span.line::before { width: 16px; height: 4px; vertical-align: 2px; }
+    /* Asked before setting off on a walk that crosses risky ground (walk.js). */
+    #walk-confirm {
+      max-width: 340px;
+      width: calc(100% - 32px);
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, .35);
+    }
+    #walk-confirm::backdrop { background: rgba(5, 8, 12, .55); }
+    #walk-confirm h2 { margin: 0 0 8px; font-size: 16px; color: var(--bad); }
+    #walk-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.45; }
+    #walk-confirm .button-row { margin-top: 14px; justify-content: flex-end; }
+    button.danger { background: var(--bad); border-color: var(--bad); color: #ffffff; font-weight: 600; }
     .walk-status { margin: 4px 0 8px; font-size: 13px; font-weight: 600; }
     .walk-status:empty { display: none; }
     .walk-avoids { margin-top: 0; }
@@ -676,6 +693,17 @@
     <button type="button" data-drive="down" aria-label="Reverse">&#8595;</button>
     <button type="button" data-drive="right" aria-label="Turn right">&#8594;</button>
   </div>
+
+  <!-- Walk warning (walk.js); wording from content.js -->
+  <dialog id="walk-confirm" aria-labelledby="walk-confirm-title">
+    <h2 id="walk-confirm-title"></h2>
+    <p id="walk-confirm-body"></p>
+    <p id="walk-confirm-advice" class="hint"></p>
+    <div class="button-row">
+      <button id="walk-confirm-cancel" type="button"></button>
+      <button id="walk-confirm-go" type="button" class="danger"></button>
+    </div>
+  </dialog>
 
   <script>
     // Small screens: the right-hand panels open from a button.

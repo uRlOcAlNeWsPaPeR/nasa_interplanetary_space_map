@@ -35,6 +35,12 @@
   var siteSelect = document.getElementById("walk-site");
   var limitsEl = document.getElementById("walk-limits");
   var marker2d = document.getElementById("walker-2d");
+  var confirmBox = document.getElementById("walk-confirm");
+  var confirmTitle = document.getElementById("walk-confirm-title");
+  var confirmBody = document.getElementById("walk-confirm-body");
+  var confirmAdvice = document.getElementById("walk-confirm-advice");
+  var confirmGo = document.getElementById("walk-confirm-go");
+  var confirmCancel = document.getElementById("walk-confirm-cancel");
 
   // ---- drawing style (not data) ----------------------------------------------
 
@@ -42,6 +48,8 @@
   var TIGHT = [255, 154, 60];   // orange: it fits, but only just
   var RANGE_ALPHA = 0.4;
   var DIRECT_COLOR = "rgba(255, 90, 80, .85)"; // the straight line the route avoids
+  var SAFE_ROUTE = "#ffffff";   // the route keeps off all risky ground
+  var RISKY_ROUTE = "#ffd23f";  // the best route there still crosses risky ground
   var STATUS_EVERY = 0.15;      // seconds between card updates while walking
   var DEFAULT_SITE_HOURS = 1;
   var BOULDER_CELLS = 2;        // keep ~150 m from each mapped megabreccia block
@@ -195,6 +203,24 @@
     return d.tooSteep || d.steep || d.sand || d.boulders || d.zone;
   }
 
+  // The best route there still crosses risky ground (no fully safe way fits).
+  function routeRisky() {
+    if (!route || !route.reachable) return false;
+    var c = route.crosses;
+    return c.steep > 0 || c.sand > 0 || c.boulders > 0 || c.zone > 0;
+  }
+
+  function routeColor() { return routeRisky() ? RISKY_ROUTE : SAFE_ROUTE; }
+
+  // "200 m of steep slopes and 450 m of mapped sand"
+  function crossedList() {
+    var c = route.crosses, items = [];
+    ["steep", "sand", "boulders", "zone"].forEach(function (k) {
+      if (c[k] > 0) items.push(metresText(c[k]) + " of " + t("risks." + k));
+    });
+    return listText(items);
+  }
+
   // ---- map drawing ---------------------------------------------------------------
 
   // The walking range: under the labels and also on the 3D ground.
@@ -230,13 +256,11 @@
         if (i) ctx.lineTo(p.nx * W, p.ny * H); else ctx.moveTo(p.nx * W, p.ny * H);
       });
       ctx.strokeStyle = "rgba(10, 14, 18, .85)";
-      ctx.lineWidth = 4.5;
+      ctx.lineWidth = 5;
       ctx.stroke();
-      ctx.setLineDash([5, 4]);
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = routeColor();
+      ctx.lineWidth = 2.5;
       ctx.stroke();
-      ctx.setLineDash([]);
     }
     ctx.beginPath();
     ctx.arc(tx, ty, 6, 0, Math.PI * 2);
@@ -249,24 +273,18 @@
     ctx.restore();
   });
 
-  // ---- 3D: footstep dots, the straight line and the astronaut ---------------------------
+  // ---- 3D: the route, the straight line and the astronaut ---------------------------------
 
-  var MAX_DOTS = 3000;
   var MAX_DIRECT_DOTS = 600;
   var DIRECT_SPACING = 0.6;     // world units between the straight line's red dots
+  var ROUTE_RADIUS = 0.13;      // the route is a solid tube, so it stands out from the red dots
+  var ROUTE_LIFT = 0.3;
 
   function build3d(api) {
     var T = api.THREE;
-    var dots = new T.InstancedMesh(
-      new T.SphereGeometry(0.14, 8, 6),
-      new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }),
-      MAX_DOTS
-    );
-    dots.count = 0;
-    dots.frustumCulled = false;
-    api.scene.add(dots);
+    var tube = null;
 
-    // The straight line as red dots, so it reads apart from the white footsteps.
+    // The straight line as red dots, so it reads apart from the solid route.
     var direct = new T.InstancedMesh(
       new T.SphereGeometry(0.14, 8, 6),
       new T.MeshBasicMaterial({ color: 0xff3b30 }),
@@ -301,16 +319,23 @@
 
     var m4 = new T.Matrix4();
     return {
-      setRoute: function (path) {
-        var n = path ? Math.min(MAX_DOTS, path.length) : 0;
-        for (var i = 0; i < n; i++) {
-          var p = posOf(path[i]);
-          var v = api.surfacePoint(p.nx, p.ny, 0.16);
-          m4.makeTranslation(v.x, v.y, v.z);
-          dots.setMatrixAt(i, m4);
+      setRoute: function (path, color) {
+        if (tube) {
+          api.scene.remove(tube);
+          tube.geometry.dispose();
+          tube.material.dispose();
+          tube = null;
         }
-        dots.count = n;
-        dots.instanceMatrix.needsUpdate = true;
+        if (!path || path.length < 2) return;
+        var pts = path.map(function (cell) {
+          var p = posOf(cell);
+          return api.surfacePoint(p.nx, p.ny, ROUTE_LIFT);
+        });
+        tube = new T.Mesh(
+          new T.TubeGeometry(new T.CatmullRomCurve3(pts), Math.min(2000, pts.length * 3), ROUTE_RADIUS, 6, false),
+          new T.MeshBasicMaterial({ color: color })
+        );
+        api.scene.add(tube);
       },
       setDirect: function (a, b) {
         if (!a) { direct.count = 0; return; }
@@ -342,7 +367,7 @@
   function set3d() {
     if (!scene3d) return;
     var on = showing() && route && route.path.length > 1 && (!stale() || !!walk);
-    scene3d.setRoute(on ? route.path : null);
+    scene3d.setRoute(on ? route.path : null, routeColor());
     scene3d.setDirect(on && directRisky() ? posOf(res.src) : null, target);
   }
 
@@ -441,12 +466,8 @@
     ["steep", "sand", "boulders", "zone"].forEach(function (k) {
       if (d[k] && !c[k]) avoided.push(t("risks." + k));
     });
-    var crossed = [];
-    ["steep", "sand", "boulders", "zone"].forEach(function (k) {
-      if (c[k] > 0) crossed.push(metresText(c[k]) + " of " + t("risks." + k));
-    });
     if (avoided.length) lines.push(fill(t("avoids"), { list: listText(avoided) }));
-    if (crossed.length) lines.push(fill(t("crosses"), { list: listText(crossed) }));
+    if (routeRisky()) lines.push(fill(t("crosses"), { list: crossedList() }));
     if (!lines.length) lines.push(t("clear"));
     return lines.join(" ");
   }
@@ -474,7 +495,7 @@
         deg: L.maxSlopeDeg, total: hoursText(route.totalHours), plan: hoursText(L.planHours)
       });
     } else if (route) {
-      status = route.level === 2 ? t("status.tight") : t("status.safe");
+      status = routeRisky() ? t("status.risky") : route.level === 2 ? t("status.tight") : t("status.safe");
     } else {
       status = t("status.pick");
     }
@@ -508,12 +529,23 @@
       siteSelect.appendChild(opt);
     });
     legendEl.textContent = "";
-    [["easy", EASY], ["tight", TIGHT]].forEach(function (item) {
+    [
+      ["easy", "rgb(" + EASY.join(",") + ")", false],
+      ["tight", "rgb(" + TIGHT.join(",") + ")", false],
+      ["safe", SAFE_ROUTE, true],
+      ["risky", RISKY_ROUTE, true],
+      ["direct", DIRECT_COLOR, true]
+    ].forEach(function (item) {
       var s = document.createElement("span");
-      s.style.setProperty("--swatch", "rgb(" + item[1].join(",") + ")");
+      if (item[2]) s.className = "line";
+      s.style.setProperty("--swatch", item[1]);
       s.textContent = t("legend." + item[0]);
       legendEl.appendChild(s);
     });
+    confirmTitle.textContent = t("confirm.title");
+    confirmAdvice.textContent = t("confirm.advice");
+    confirmGo.textContent = t("confirm.go");
+    confirmCancel.textContent = t("confirm.cancel");
     clearBtn.textContent = t("buttons.clear");
     var L = core.LIMITS;
     limitsEl.textContent = fill(t("limits"), {
@@ -562,10 +594,27 @@
     renderCard();
   });
 
+  // A route that still crosses risky ground needs a second yes before walking.
   startBtn.addEventListener("click", function () {
-    if (walk) endWalk("stopped");
-    else startWalk();
+    if (walk) { endWalk("stopped"); return; }
+    if (routeRisky() && confirmBox && confirmBox.showModal) {
+      confirmBody.textContent = fill(t("confirm.body"), { list: crossedList(), plan: hoursText(core.LIMITS.planHours) });
+      confirmBox.showModal();
+      confirmCancel.focus(); // the safe choice is the default
+      return;
+    }
+    startWalk();
   });
+
+  if (confirmBox) {
+    confirmGo.addEventListener("click", function () {
+      confirmBox.close();
+      startWalk();
+    });
+    confirmCancel.addEventListener("click", function () { confirmBox.close(); });
+    // Clicking the dimmed backdrop cancels too.
+    confirmBox.addEventListener("click", function (e) { if (e.target === confirmBox) confirmBox.close(); });
+  }
 
   clearBtn.addEventListener("click", function () {
     target = null;

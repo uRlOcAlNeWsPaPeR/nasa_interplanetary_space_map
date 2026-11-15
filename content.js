@@ -171,6 +171,17 @@ export const content = {
     legend: {
       easy: "Easy round trip",
       tight: "Fits, but only just",
+      safe: "Safe route",
+      risky: "Best route, crosses risky ground",
+      direct: "Straight line",
+    },
+    // Shown when Walk is pressed on a route that still crosses risky ground.
+    confirm: {
+      title: "This walk crosses risky ground",
+      body: "The best route still crosses about {list}. There's no safer way there that fits the {plan} plan.",
+      advice: "For a safer walk, pick a spot where the route stays white.",
+      go: "Walk anyway",
+      cancel: "Cancel",
     },
     buttons: {
       start: "Walk",
@@ -182,6 +193,7 @@ export const content = {
       pick: "Click a spot in the coloured area.",
       safe: "Safest route found. Check the details, then press Walk.",
       tight: "Safest route found, but it only just fits. Check the details, then press Walk.",
+      risky: "No fully safe route here: the best one (yellow) crosses risky ground. Check the details before you walk.",
       out: "Walking out · {left} of the plan left",
       site: "Working at the site · {left} of the plan left",
       back: "Walking back to Ridgeback · {left} of the plan left",
@@ -252,7 +264,7 @@ export const content = {
     ],
     walk: [
       { name: "Click a spot", text: "While this tab is open, clicking inside the coloured area plans the safest walk there and back." },
-      { name: "Walk / Stop walk", text: "Sets off on the planned walk once you've checked the details, or calls it off." },
+      { name: "Walk / Stop walk", text: "Sets off on the planned walk once you've checked the details, or calls it off. If the route crosses risky ground (yellow), you're asked to confirm first." },
       { name: "Clear", text: "Removes the planned walk." },
       { name: "Time at the site", text: "Under Options & limits: how long the astronaut spends working once they arrive." },
     ],
