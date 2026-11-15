@@ -37,6 +37,13 @@ export const content = {
       },
     },
 
+    // Pulsing alert in the middle of the screen when the battery hits 0%.
+    batteryAlert: {
+      title: "Battery empty",
+      text: "Ridgeback has run out of power and can't move. The mission is over.",
+      button: "Start over",
+    },
+
     // Warning under the risk meter while Ridgeback closes in on a hazard (rover.js).
     warnings: {
       slope: {

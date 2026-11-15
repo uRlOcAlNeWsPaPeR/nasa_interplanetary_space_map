@@ -839,6 +839,9 @@
     document.getElementById("rb-reset").textContent = t("rover.buttons.reset");
     document.getElementById("rb-recharge").textContent = t("rover.buttons.recharge");
     routeClearBtn.textContent = t("rover.buttons.clear");
+    document.getElementById("battery-alert-title").textContent = t("rover.batteryAlert.title");
+    document.getElementById("battery-alert-text").textContent = t("rover.batteryAlert.text");
+    document.getElementById("battery-alert-reset").textContent = t("rover.batteryAlert.button");
     var battery = TEXT && TEXT.rover.stats.battery;
     if (battery) {
       document.getElementById("rb-battery-label").textContent = battery.label;
@@ -1149,7 +1152,16 @@
     rbLimit.textContent = lk ? t("rover.limits." + lk) : "";
     var hk = hintKey();
     rbHint.textContent = hk ? t("rover.hints." + hk) : "";
+    if (batteryAlert) batteryAlert.hidden = !rover.dead;
   }
+
+  // Battery empty: a pulsing alert in the middle of the screen; its button
+  // does the same as Start over.
+  var batteryAlert = document.getElementById("battery-alert");
+  document.getElementById("battery-alert-reset").addEventListener("click", function () {
+    document.getElementById("rb-reset").click();
+    batteryAlert.hidden = true;
+  });
 
   function renderRisk() {
     if (!rover.sample) {

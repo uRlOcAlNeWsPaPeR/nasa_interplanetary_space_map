@@ -343,6 +343,34 @@
       pointer-events: none;
     }
     #risk-hud[hidden] { display: none; }
+    /* Battery empty (rover.js): pulses slowly (well under 3 flashes a second),
+       and holds still for people who ask for reduced motion. */
+    #battery-alert {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 50;
+      width: min(360px, calc(100vw - 32px));
+      padding: 18px 20px;
+      text-align: center;
+      color: #ffffff;
+      background: rgba(150, 20, 20, .92);
+      border: 2px solid #ff5a4f;
+      border-radius: 14px;
+      animation: battery-flash 1s ease-in-out infinite alternate;
+    }
+    #battery-alert[hidden] { display: none; }
+    #battery-alert h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: .04em; text-transform: uppercase; color: #ffffff; }
+    #battery-alert p { margin: 0 0 14px; font-size: 14px; line-height: 1.4; }
+    #battery-alert button { background: #ffffff; border-color: #ffffff; color: #8f1410; font-weight: 700; }
+    @keyframes battery-flash {
+      from { background: rgba(110, 12, 12, .9); box-shadow: 0 0 0 0 rgba(255, 90, 79, 0); }
+      to { background: rgba(214, 38, 30, .96); box-shadow: 0 0 40px 12px rgba(255, 90, 79, .55); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #battery-alert { animation: none; }
+    }
     /* Colour-coded hazard warning (rover.js): filled = Ridgeback can't drive
        there, outlined = risky ground; the colour matches the map highlight. */
     .hazard-warning {
@@ -596,6 +624,13 @@
     <div id="risk-cause"></div>
     <!-- Hazard Ridgeback is closing in on (rover.js), in that hazard's colour -->
     <div id="hazard-warning" role="status" aria-live="polite" hidden></div>
+  </div>
+
+  <!-- Battery empty (rover.js); wording from content.js -->
+  <div id="battery-alert" role="alert" hidden>
+    <h2 id="battery-alert-title"></h2>
+    <p id="battery-alert-text"></p>
+    <button id="battery-alert-reset" type="button"></button>
   </div>
 
   <button id="panels-toggle" type="button" aria-expanded="false">Panels</button>
