@@ -57,6 +57,7 @@ export const content = {
         danger: "Deep sand ahead: Ridgeback will get stuck",
         hereCaution: "On mapped sand",
         hereDanger: "Dug into deep sand: drive out the way you came",
+        key: "Blue: sand to avoid · Yellow: all mapped sand",
       },
     },
 

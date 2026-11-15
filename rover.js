@@ -1192,9 +1192,10 @@
   var LOOK_AHEAD_M = 400;      // how far ahead Ridgeback watches for hazards
   var LOOK_STEP_M = 20;
   var WARN_HOLD = 1.5;         // seconds a warning lingers once clear, so it doesn't flicker
-  // Near sand, light up all mapped sand: the same as the Mapped sand
-  // highlight slider turned fully on (limit 0). Steep ground uses the caution limit.
-  var WARN_ZONE_LIMIT = { dustRisk: 0 };
+  // Near sand: the sand to avoid (over the caution limit) lights up blue, and
+  // the rest of the mapped sand soft yellow, so you can see all of it without
+  // a sea of blue. Steep ground shows just its caution zone.
+  var WARN_UNDER = { dustRisk: 0 };
   var hazardWarnEl = document.getElementById("hazard-warning");
   var warnLast = null;         // last hazard seen: { key, level, m }
   var warnUntil = 0;
@@ -1264,7 +1265,13 @@
     hazardWarnEl.style.setProperty("--hz", map.hazardColor(w.key));
     hazardWarnEl.textContent = (w.level === "danger" ? "⚠ " : "") + label +
       (hz && !here ? " · " + Math.max(LOOK_STEP_M, Math.round(w.m / 10) * 10) + " m" : "");
-    map.setHazardWarning(w.key, w.key in WARN_ZONE_LIMIT ? WARN_ZONE_LIMIT[w.key] : threshold(w.key));
+    if (words && words.key) {
+      var keyLine = document.createElement("span");
+      keyLine.className = "hazard-key";
+      keyLine.textContent = words.key;
+      hazardWarnEl.appendChild(keyLine);
+    }
+    map.setHazardWarning(w.key, threshold(w.key), w.key in WARN_UNDER ? WARN_UNDER[w.key] : null);
   }
 
   var BLOCK_WORDS = {

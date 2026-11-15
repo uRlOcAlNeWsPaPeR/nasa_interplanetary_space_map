@@ -157,10 +157,12 @@
     onHazardChange: function (cb) { hazardListeners.push(cb); },
     // Show one hazard's zone (key, 0-1 limit) while Ridgeback closes in on
     // it, or none (null). Drawing only: routes and driving are unaffected.
-    setHazardWarning: function (key, limit) {
-      var now = hazardWarning ? hazardWarning.key + ":" + hazardWarning.limit : "";
-      if (now === (key ? key + ":" + limit : "")) return;
-      hazardWarning = key ? { key: key, limit: limit } : null;
+    // With `under`, the rest of that hazard above `under` shows in soft yellow.
+    setHazardWarning: function (key, limit, under) {
+      var id = function (w) { return w ? w.key + ":" + w.limit + ":" + w.under : ""; };
+      var next = key ? { key: key, limit: limit, under: under == null ? null : under } : null;
+      if (id(hazardWarning) === id(next)) return;
+      hazardWarning = next;
       render();
     },
     // The point last clicked on the map, or null.
@@ -291,22 +293,36 @@
   // Zones the user highlights, plus (drawn the same way) the hazard Ridgeback
   // is closing in on. That warning one is only drawn: it doesn't count as a
   // hazard zone for routes, driving or readouts (isOver/hazardLimit ignore it).
-  var hazardWarning = null; // { key, limit } from rover.js
+  // The warning can also show the rest of that hazard (values between `under`
+  // and the warning limit) as a soft yellow layer, e.g. all mapped sand in
+  // yellow with the sand to avoid in blue.
+  var hazardWarning = null; // { key, limit, under } from rover.js
+  var WARN_UNDER_COLOR = [255, 214, 79];
+  var WARN_UNDER_ALPHA = 0.3;
   function buildHazardZones() {
-    return HAZARDS.filter(function (hz) {
-      return limits[hz.key] < 1 || (hazardWarning && hazardWarning.key === hz.key);
-    }).map(function (hz) {
+    var zones = [];
+    HAZARDS.forEach(function (hz) {
       var userZone = limits[hz.key] < 1;
+      var warned = !userZone && hazardWarning && hazardWarning.key === hz.key;
+      if (!userZone && !warned) return;
       var values = getSmoothField(hz.key);
       var limit = userZone ? limits[hz.key] : hazardWarning.limit;
       var mask = new Uint8Array(W * H);
-      var count = 0;
-      for (var i = 0; i < mask.length; i++) {
+      var count = 0, i;
+      for (i = 0; i < mask.length; i++) {
         if (values[i] > limit) { mask[i] = 1; count++; }
       }
       if (userZone) coverage[hz.key] = count / mask.length;
-      return { hz: hz, values: values, limit: limit, mask: mask, count: count };
+      if (warned && hazardWarning.under != null) {
+        var soft = new Uint8Array(W * H);
+        for (i = 0; i < soft.length; i++) {
+          if (values[i] > hazardWarning.under && !mask[i]) soft[i] = 1;
+        }
+        zones.push({ hz: { key: hz.key, color: WARN_UNDER_COLOR }, values: values, limit: hazardWarning.under, mask: soft, soft: true });
+      }
+      zones.push({ hz: hz, values: values, limit: limit, mask: mask, count: count });
     });
+    return zones;
   }
 
   function render() {
@@ -378,6 +394,13 @@
         for (var z = 0; z < zones.length; z++) {
           var zone = zones[z];
           var c = zone.hz.color;
+          if (zone.soft) {
+            // Plain tint, no border or halo: context, not a hazard zone.
+            if (zone.mask[i]) {
+              r += (c[0] - r) * WARN_UNDER_ALPHA; g += (c[1] - g) * WARN_UNDER_ALPHA; b += (c[2] - b) * WARN_UNDER_ALPHA;
+            }
+            continue;
+          }
           if (zone.mask[i]) {
             inAny = true;
             // Kept light so the terrain underneath stays readable.
