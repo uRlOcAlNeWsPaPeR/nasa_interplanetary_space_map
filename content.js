@@ -40,7 +40,7 @@ export const content = {
     limits: {
       title: "What Ridgeback can't do",
       steepSlope: "Can't climb very steep slopes. It would tip over.",
-      deepSand: "Gets stuck in deep sand. Avoid dark, loose-looking patches.",
+      deepSand: "Gets stuck in deep sand, and can only back out the way it came in. Avoid dark, loose-looking patches.",
       extremeCold: "Battery drains much faster in extreme cold. Real rover cells hold about a quarter less charge at −20 °C.",
       dustStorm: "Solar panels barely work during a dust storm.",
     },
@@ -51,7 +51,7 @@ export const content = {
       charging: "Recharging in sunlight. Waiting is safe, but time is limited.",
       lowBattery: "Battery below 40%, NASA's safe floor. Find a sunny, flat spot or head for the nearest safe point.",
       critical: "Battery critical. Ridgeback will stop soon.",
-      stuck: "Ridgeback is stuck. Try backing out and choosing a flatter route.",
+      stuck: "Ridgeback is stuck. Back out the way you came in, then choose a safer route.",
       arrived: "You made it. Ridgeback has reached the destination.",
       failed: "Ridgeback has run out of power. The mission is over.",
     },

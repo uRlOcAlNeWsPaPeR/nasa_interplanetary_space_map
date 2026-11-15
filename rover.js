@@ -507,6 +507,7 @@
   var planMessage = "";
   var scene3d = null;
   var locked = false;     // someone is outside on foot (walk.js): Ridgeback stays parked
+  var sandExit = null;    // last firm ground Ridgeback stood on: once dug into deep sand, it can only back out toward here
 
   function selectedRoute() {
     if (!routes) return null;
@@ -575,10 +576,24 @@
   }
 
   // Put the rover somewhere directly (start site, or "drive again").
+  // Nearest ground that isn't deep sand, searching outward in rings.
+  function nearestFirmGround(p) {
+    for (var r = 0.004; r < 0.5; r += 0.004) {
+      for (var a = 0; a < 32; a++) {
+        var ang = a / 32 * Math.PI * 2;
+        var q = { nx: p.nx + Math.cos(ang) * r, ny: p.ny + Math.sin(ang) * r / ASPECT };
+        if (q.nx < 0 || q.nx > 1 || q.ny < 0 || q.ny > 1) continue;
+        if (data.sampleTerrainAt(q.nx, q.ny).dustRisk <= DEEP_SAND) return q;
+      }
+    }
+    return null;
+  }
+
   function teleport(p) {
     rover.pos = { nx: p.nx, ny: p.ny };
     rover.speed = 0;
     rover.blocked = null;
+    sandExit = null;
     refreshSample();
     if (scene3d) scene3d.resetTrail();
   }
@@ -941,6 +956,7 @@
     var steer = rover.dead ? 0 : (input.right ? 1 : 0) - (input.left ? 1 : 0);
     var mul = speedMul();
     rover.stuck = rover.sample.dustRisk > DEEP_SAND;
+    if (rover.stuck && !sandExit) sandExit = nearestFirmGround(rover.pos); // started in deep sand: no tracks to follow
     var factor = speedFactor(rover.sample) * (throttle < 0 ? (rover.stuck ? STUCK_REVERSE : REVERSE_FACTOR) : 1);
     if (rover.stuck && throttle > 0) factor = 0; // wheels just spin
     var target = throttle * DRIVE_SPEED * mul * factor;
@@ -962,7 +978,18 @@
       rover.speed = 0;
       return;
     }
-    var block = limitAhead(data.sampleTerrainAt(nx, ny));
+    var ahead = data.sampleTerrainAt(nx, ny);
+    // Dug in: reversing only works back out (toward the firm ground it came
+    // from, or onto shallower sand), like real rovers backing out along their
+    // tracks. It can't reverse deeper in or across the sand.
+    if (rover.stuck && rover.speed < 0 && sandExit &&
+        mapDist({ nx: nx, ny: ny }, sandExit) >= mapDist(rover.pos, sandExit) &&
+        !(ahead.dustRisk < rover.sample.dustRisk)) {
+      rover.blocked = "deepSand";
+      rover.speed = 0;
+      return;
+    }
+    var block = limitAhead(ahead);
     if (block) {
       rover.blocked = block;
       rover.speed = 0;
@@ -1029,6 +1056,7 @@
       if (rover.playing) everMoved = true;
     }
     refreshSample();
+    if (rover.sample.dustRisk <= DEEP_SAND) sandExit = { nx: rover.pos.nx, ny: rover.pos.ny };
     stepBattery(dt, prevElevation);
   }
 
