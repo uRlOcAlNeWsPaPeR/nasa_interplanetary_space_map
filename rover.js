@@ -67,10 +67,11 @@
   // Ridgeback's physical limits (always on, unlike the highlight sliders).
   var MAX_SLOPE = 0.6;         // steeper than this and it would tip over
   // Simulated rule: where 80%+ of the ground is mapped as sand bedforms (about
-  // 10% of this map), the wheels dig in and only reversing works. Perseverance
-  // also kept out of Jezero's dense ripple fields.
+  // 10% of this map), the wheels dig in and Ridgeback can only crawl back out
+  // the way it came (forward or in reverse). Perseverance also kept out of
+  // Jezero's dense ripple fields.
   var DEEP_SAND = 0.8;
-  var STUCK_REVERSE = 0.4;     // reverse speed factor while dug in
+  var STUCK_FACTOR = 0.4;      // speed factor while dug in, either direction
 
   // Battery. The power budget is worked out in watts and watt-hours, using
   // NASA rover figures (sources in content.js, realPower), then shown as %.
@@ -957,17 +958,15 @@
     var mul = speedMul();
     rover.stuck = rover.sample.dustRisk > DEEP_SAND;
     if (rover.stuck && !sandExit) sandExit = nearestFirmGround(rover.pos); // started in deep sand: no tracks to follow
-    var factor = speedFactor(rover.sample) * (throttle < 0 ? (rover.stuck ? STUCK_REVERSE : REVERSE_FACTOR) : 1);
-    if (rover.stuck && throttle > 0) factor = 0; // wheels just spin
+    var factor = speedFactor(rover.sample) * (rover.stuck ? STUCK_FACTOR : throttle < 0 ? REVERSE_FACTOR : 1);
     var target = throttle * DRIVE_SPEED * mul * factor;
     // Braking (letting go) is quicker than accelerating.
     rover.speed += (target - rover.speed) * (1 - Math.exp(-dt * (throttle ? ACCEL : ACCEL * 2.5)));
     if (!throttle && Math.abs(rover.speed) < DRIVE_SPEED * 0.05) rover.speed = 0;
-    if (rover.stuck && throttle > 0) rover.speed = 0;
     // Like Ridgeback: steering is gentler at low speed and flips in reverse.
     var turnScale = 0.35 + 0.65 * Math.min(1, Math.abs(rover.speed) / (DRIVE_SPEED * 0.5));
     rover.heading += steer * TURN_RATE * Math.min(2, mul) * turnScale * dt * (rover.speed < 0 ? -1 : 1);
-    if (throttle || steer) rover.blocked = rover.stuck && throttle > 0 ? "deepSand" : null;
+    if (throttle || steer) rover.blocked = null; // set again below if the way ahead is blocked
     if (throttle) everMoved = true;
     if (!rover.speed) return;
 
@@ -979,10 +978,10 @@
       return;
     }
     var ahead = data.sampleTerrainAt(nx, ny);
-    // Dug in: reversing only works back out (toward the firm ground it came
-    // from, or onto shallower sand), like real rovers backing out along their
-    // tracks. It can't reverse deeper in or across the sand.
-    if (rover.stuck && rover.speed < 0 && sandExit &&
+    // Dug in: driving (forward or in reverse) only works back out, toward the
+    // firm ground it came from or onto shallower sand, like real rovers
+    // backing out along their tracks. It can't go deeper in or across the sand.
+    if (rover.stuck && sandExit &&
         mapDist({ nx: nx, ny: ny }, sandExit) >= mapDist(rover.pos, sandExit) &&
         !(ahead.dustRisk < rover.sample.dustRisk)) {
       rover.blocked = "deepSand";
@@ -1106,7 +1105,7 @@
   // content.js status key for the rover's situation, most serious first.
   function statusKey() {
     if (rover.dead) return "failed";
-    if (rover.blocked === "deepSand" || rover.blocked === "steepSlope" || (rover.stuck && input.up)) return "stuck";
+    if (rover.blocked === "deepSand" || rover.blocked === "steepSlope") return "stuck";
     if (rover.battery < CRITICAL_BATTERY) return "critical";
     if (rover.battery < LOW_BATTERY) return "lowBattery";
     if (rover.arrived || (dest && mapDist(rover.pos, dest) < ARRIVE_RADIUS)) return "arrived";
@@ -1165,6 +1164,89 @@
     riskCause.textContent = (zone ? "In " + HAZARD_WORDS[zone] + " zone" : "Main factor: " + HAZARD_WORDS[key]) +
       " · " + pct(rover.sample[key]);
     riskCause.style.color = zone ? map.hazardColor(zone) : "";
+    renderWarning();
+  }
+
+  // ---- hazard ahead ---------------------------------------------------------
+  //
+  // While Ridgeback closes in on steep ground or deep sand, a warning in that
+  // hazard's colour shows under the risk meter, and the hazard's zone lights
+  // up on the map and the ground. The highlight is drawing only: it doesn't
+  // change routes or block driving like the user's own hazard zones do.
+
+  var LOOK_AHEAD_M = 400;      // how far ahead Ridgeback watches for hazards
+  var LOOK_STEP_M = 20;
+  var WARN_HOLD = 1.5;         // seconds a warning lingers once clear, so it doesn't flicker
+  var hazardWarnEl = document.getElementById("hazard-warning");
+  var warnLast = null;         // last hazard seen: { key, level, m }
+  var warnUntil = 0;
+
+  function metresPerWidth() {
+    var s = data.getScale ? data.getScale() : null;
+    return s ? s.widthKm * 1000 : 30000;
+  }
+
+  // Points along the way ahead (the route in Auto, the heading in Manual),
+  // nearest first, each with its distance in metres. Standing still: just here.
+  function aheadPoints() {
+    var moving = rover.playing || rover.speed !== 0 || input.up || input.down;
+    var stepW = LOOK_STEP_M / metresPerWidth();
+    var n = moving ? Math.round(LOOK_AHEAD_M / LOOK_STEP_M) : 0;
+    var pts = [];
+    if (rover.mode === "auto" && rover.path && rover.playing) {
+      for (var i = 0; i <= n && rover.s + i * stepW <= rover.total; i++) {
+        pts.push({ p: pointOn(rover.path, rover.cum, rover.s + i * stepW), m: i * LOOK_STEP_M });
+      }
+    } else {
+      var back = rover.speed < 0 || (input.down && !input.up);
+      var h = rover.heading + (back ? Math.PI : 0);
+      for (var j = 0; j <= n; j++) {
+        var q = { nx: rover.pos.nx + Math.cos(h) * j * stepW, ny: rover.pos.ny + Math.sin(h) * j * stepW / ASPECT };
+        if (q.nx < 0 || q.nx > 1 || q.ny < 0 || q.ny > 1) break;
+        pts.push({ p: q, m: j * LOOK_STEP_M });
+      }
+    }
+    return pts;
+  }
+
+  // The hazard ahead: the nearest ground Ridgeback can't drive (danger), or
+  // failing that the nearest ground over the caution limits.
+  function hazardAhead() {
+    var danger = null, caution = null;
+    aheadPoints().forEach(function (pt) {
+      var s = data.sampleTerrainAt(pt.p.nx, pt.p.ny);
+      if (!danger) {
+        if (s.slope > MAX_SLOPE) danger = { key: "slope", level: "danger", m: pt.m };
+        else if (s.dustRisk > DEEP_SAND) danger = { key: "dustRisk", level: "danger", m: pt.m };
+      }
+      if (!caution) {
+        if (s.slope > threshold("slope")) caution = { key: "slope", level: "caution", m: pt.m };
+        else if (s.dustRisk > threshold("dustRisk")) caution = { key: "dustRisk", level: "caution", m: pt.m };
+      }
+    });
+    return danger || caution;
+  }
+
+  function renderWarning() {
+    if (!hazardWarnEl) return;
+    var now = performance.now() / 1000;
+    var hz = rover.pos && !rover.dead ? hazardAhead() : null;
+    if (hz) { warnLast = hz; warnUntil = now + WARN_HOLD; }
+    var w = hz || (now < warnUntil ? warnLast : null);
+    if (!w) {
+      hazardWarnEl.hidden = true;
+      map.setHazardWarning(null);
+      return;
+    }
+    var words = TEXT && TEXT.rover.warnings ? TEXT.rover.warnings[w.key] : null;
+    var here = w.m < LOOK_STEP_M;
+    var label = words ? words[here ? (w.level === "danger" ? "hereDanger" : "hereCaution") : w.level] : HAZARD_WORDS[w.key];
+    hazardWarnEl.hidden = false;
+    hazardWarnEl.className = "hazard-warning hazard-warning--" + w.level;
+    hazardWarnEl.style.setProperty("--hz", map.hazardColor(w.key));
+    hazardWarnEl.textContent = (w.level === "danger" ? "⚠ " : "") + label +
+      (hz && !here ? " · " + Math.max(LOOK_STEP_M, Math.round(w.m / 10) * 10) + " m" : "");
+    map.setHazardWarning(w.key, threshold(w.key));
   }
 
   var BLOCK_WORDS = {

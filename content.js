@@ -37,10 +37,26 @@ export const content = {
       },
     },
 
+    // Warning under the risk meter while Ridgeback closes in on a hazard (rover.js).
+    warnings: {
+      slope: {
+        caution: "Steep slope ahead",
+        danger: "Too steep for Ridgeback ahead",
+        hereCaution: "On steep ground",
+        hereDanger: "Too steep to go on",
+      },
+      dustRisk: {
+        caution: "Mapped sand ahead",
+        danger: "Deep sand ahead: Ridgeback will get stuck",
+        hereCaution: "On mapped sand",
+        hereDanger: "Dug into deep sand: drive out the way you came",
+      },
+    },
+
     limits: {
       title: "What Ridgeback can't do",
       steepSlope: "Can't climb very steep slopes. It would tip over.",
-      deepSand: "Gets stuck in deep sand, and can only back out the way it came in. Avoid dark, loose-looking patches.",
+      deepSand: "Gets stuck in deep sand, and can only get out the way it came in (forward or in reverse). Avoid dark, loose-looking patches.",
       extremeCold: "Battery drains much faster in extreme cold. Real rover cells hold about a quarter less charge at −20 °C.",
       dustStorm: "Solar panels barely work during a dust storm.",
     },
@@ -51,7 +67,7 @@ export const content = {
       charging: "Recharging in sunlight. Waiting is safe, but time is limited.",
       lowBattery: "Battery below 40%, NASA's safe floor. Find a sunny, flat spot or head for the nearest safe point.",
       critical: "Battery critical. Ridgeback will stop soon.",
-      stuck: "Ridgeback is stuck. Back out the way you came in, then choose a safer route.",
+      stuck: "Ridgeback is stuck. Turn toward the way you came in and drive out, then choose a safer route.",
       arrived: "You made it. Ridgeback has reached the destination.",
       failed: "Ridgeback has run out of power. The mission is over.",
     },

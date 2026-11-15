@@ -155,6 +155,14 @@
     },
     hazardKeys: function () { return HAZARDS.map(function (hz) { return hz.key; }); },
     onHazardChange: function (cb) { hazardListeners.push(cb); },
+    // Show one hazard's zone (key, 0-1 limit) while Ridgeback closes in on
+    // it, or none (null). Drawing only: routes and driving are unaffected.
+    setHazardWarning: function (key, limit) {
+      var now = hazardWarning ? hazardWarning.key + ":" + hazardWarning.limit : "";
+      if (now === (key ? key + ":" + limit : "")) return;
+      hazardWarning = key ? { key: key, limit: limit } : null;
+      render();
+    },
     // The point last clicked on the map, or null.
     getSelected: function () { return selected ? { nx: selected.nx, ny: selected.ny } : null; },
     // Each tab acts on a click itself (Plan/Drive: destination, Walk: walk).
@@ -280,16 +288,23 @@
     return false;
   }
 
+  // Zones the user highlights, plus (drawn the same way) the hazard Ridgeback
+  // is closing in on. That warning one is only drawn: it doesn't count as a
+  // hazard zone for routes, driving or readouts (isOver/hazardLimit ignore it).
+  var hazardWarning = null; // { key, limit } from rover.js
   function buildHazardZones() {
-    return HAZARDS.filter(function (hz) { return limits[hz.key] < 1; }).map(function (hz) {
+    return HAZARDS.filter(function (hz) {
+      return limits[hz.key] < 1 || (hazardWarning && hazardWarning.key === hz.key);
+    }).map(function (hz) {
+      var userZone = limits[hz.key] < 1;
       var values = getSmoothField(hz.key);
-      var limit = limits[hz.key];
+      var limit = userZone ? limits[hz.key] : hazardWarning.limit;
       var mask = new Uint8Array(W * H);
       var count = 0;
       for (var i = 0; i < mask.length; i++) {
         if (values[i] > limit) { mask[i] = 1; count++; }
       }
-      coverage[hz.key] = count / mask.length;
+      if (userZone) coverage[hz.key] = count / mask.length;
       return { hz: hz, values: values, limit: limit, mask: mask, count: count };
     });
   }

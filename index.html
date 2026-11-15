@@ -343,6 +343,19 @@
       pointer-events: none;
     }
     #risk-hud[hidden] { display: none; }
+    /* Colour-coded hazard warning (rover.js): filled = Ridgeback can't drive
+       there, outlined = risky ground; the colour matches the map highlight. */
+    .hazard-warning {
+      margin-top: 8px;
+      padding: 6px 8px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .hazard-warning[hidden] { display: none; }
+    .hazard-warning--danger { background: var(--hz); color: #0d1117; }
+    .hazard-warning--caution { border: 2px solid var(--hz); color: var(--text); }
     .risk-head { display: flex; justify-content: space-between; color: var(--muted); }
     .risk-head strong { color: var(--text); }
     .risk-bar { height: 6px; margin: 6px 0; background: var(--line); border-radius: 3px; overflow: hidden; }
@@ -581,6 +594,8 @@
     <div class="risk-head">Ground risk <strong id="risk-level"></strong></div>
     <div class="risk-bar"><span id="risk-fill"></span></div>
     <div id="risk-cause"></div>
+    <!-- Hazard Ridgeback is closing in on (rover.js), in that hazard's colour -->
+    <div id="hazard-warning" role="status" aria-live="polite" hidden></div>
   </div>
 
   <button id="panels-toggle" type="button" aria-expanded="false">Panels</button>
