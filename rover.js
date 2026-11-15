@@ -1299,12 +1299,53 @@
     return danger || caution;
   }
 
+  // Big number under the risk meter: metres left before deep sand (over
+  // DEEP_SAND, the fixed level where Ridgeback gets stuck), up to SAND_LOOK_M
+  // ahead along the route (Auto) or the heading (Manual), even while stopped.
+  var SAND_LOOK_M = 1000;
+  var sandDistEl = document.getElementById("sand-distance");
+
+  function deepSandAhead() {
+    var stepW = LOOK_STEP_M / metresPerWidth();
+    var n = Math.round(SAND_LOOK_M / LOOK_STEP_M);
+    var onRoute = rover.mode === "auto" && rover.path;
+    var back = rover.speed < 0 || (input.down && !input.up);
+    var h = rover.heading + (back ? Math.PI : 0);
+    for (var i = 0; i <= n; i++) {
+      var q;
+      if (onRoute) {
+        if (rover.s + i * stepW > rover.total) return null;
+        q = pointOn(rover.path, rover.cum, rover.s + i * stepW);
+      } else {
+        q = { nx: rover.pos.nx + Math.cos(h) * i * stepW, ny: rover.pos.ny + Math.sin(h) * i * stepW / ASPECT };
+        if (q.nx < 0 || q.nx > 1 || q.ny < 0 || q.ny > 1) return null;
+      }
+      if (data.sampleTerrainAt(q.nx, q.ny).dustRisk > DEEP_SAND) return i * LOOK_STEP_M;
+    }
+    return null;
+  }
+
+  function renderSandDistance() {
+    if (!sandDistEl) return null;
+    var m = rover.pos && !rover.dead ? deepSandAhead() : null;
+    sandDistEl.hidden = m === null;
+    if (m === null) return null;
+    var words = TEXT && TEXT.rover.deepSand ? TEXT.rover.deepSand : { ahead: "to deep sand ahead", inIt: "In deep sand: drive out the way you came" };
+    document.getElementById("sand-distance-value").textContent = m < LOOK_STEP_M ? "0 m" : Math.round(m / 10) * 10 + " m";
+    document.getElementById("sand-distance-label").textContent = m < LOOK_STEP_M ? words.inIt : words.ahead;
+    return m;
+  }
+
   function renderWarning() {
     if (!hazardWarnEl) return;
+    var sandM = renderSandDistance();
     var now = performance.now() / 1000;
     var hz = rover.pos && !rover.dead ? hazardAhead() : null;
+    // Deep sand ahead is covered by the big number, so no banner for it.
+    if (hz && hz.key === "dustRisk" && hz.level === "danger" && sandM !== null) hz = null;
     if (hz) { warnLast = hz; warnUntil = now + WARN_HOLD; }
     var w = hz || (now < warnUntil ? warnLast : null);
+    if (w && w.key === "dustRisk" && w.level === "danger" && sandM !== null) w = null;
     if (!w) {
       hazardWarnEl.hidden = true;
       map.setHazardWarning(null);
@@ -1916,38 +1957,30 @@
 
     // ---- chase camera (Ridgeback's) -------------------------------------------
     //
-    // Three camera modes (switch in the Drive tab):
-    // - Third person (default): follows behind the rover. Drag to swing round
-    //   it (it keeps following), scroll to zoom.
-    // - First person: from the rover's deck, looking where it's heading. Drag
-    //   to look around.
-    // - Fixed: stays put while the rover drives on. Left-drag pans across the
-    //   map, right-drag (or Shift-drag) turns and tilts, scroll zooms.
+    // Two camera modes (switch in the Drive tab):
+    // - Chase cam (default): behind the rover, following it.
+    // - 1st person: from the rover's deck, looking where it's heading.
+    // While the rover is stopped you can drag to look around (and scroll to
+    // zoom the chase cam); once it starts moving the view eases back.
 
-    var cam = { mode: "third", off: 0, p: 0.38, d: 13, h: 0, yaw: 0, target: null, lookYaw: 0, lookPitch: -0.08 };
+    var CAM_DEFAULT = { off: 0, p: 0.38, d: 13, lookYaw: 0, lookPitch: -0.08 };
+    var cam = { mode: "chase", h: 0, off: 0, p: 0.38, d: 13, lookYaw: 0, lookPitch: -0.08 };
     var drag = null;
     var CAM_MIN = 5, CAM_MAX = 140;
-    var PAN_SPEED = 0.0022;   // world units per pixel dragged, per unit of zoom distance
+    var CAM_RETURN = 2.5;     // how quickly the view eases back once moving (per second)
     var DRAG_START_PX = 3;    // ignore tiny jitters (a right-click still places a point)
     var EYE_HEIGHT = 1.9;     // first person: eye above the rover's wheels
     var EYE_FORWARD = 0.6;
     var camButtons = {
-      fixed: document.getElementById("cam-fixed"),
-      first: document.getElementById("cam-first"),
-      third: document.getElementById("cam-third")
+      chase: document.getElementById("cam-chase"),
+      first: document.getElementById("cam-first")
     };
 
+    function roverMoving() { return rover.playing || Math.abs(rover.speed) > 1e-6; }
+
     function setCamMode(mode) {
-      if (mode === "fixed" && cam.mode !== "fixed") {
-        // Freeze the view where it is (from first person: just behind the rover).
-        var c0 = rover.pos ? api.surfacePoint(rover.pos.nx, rover.pos.ny, 0) : new T.Vector3();
-        cam.yaw = cam.h + Math.PI + (cam.mode === "third" ? cam.off : 0);
-        if (cam.mode !== "third") { cam.p = 0.38; cam.d = 13; }
-        cam.target = { x: c0.x, z: c0.z };
-      }
-      if (mode === "third" && cam.mode !== "third") { cam.off = 0; cam.p = 0.38; cam.d = 13; }
-      if (mode === "first") { cam.lookYaw = 0; cam.lookPitch = -0.08; }
       cam.mode = mode;
+      Object.keys(CAM_DEFAULT).forEach(function (k) { cam[k] = CAM_DEFAULT[k]; });
       Object.keys(camButtons).forEach(function (k) {
         if (camButtons[k]) camButtons[k].setAttribute("aria-pressed", String(k === mode));
       });
@@ -1957,7 +1990,7 @@
     });
 
     api.dom.addEventListener("pointerdown", function (e) {
-      drag = { x: e.clientX, y: e.clientY, turn: e.button === 2 || e.shiftKey, moved: false };
+      drag = { x: e.clientX, y: e.clientY, moved: false };
       try { api.dom.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
     });
     api.dom.addEventListener("pointermove", function (e) {
@@ -1965,31 +1998,22 @@
       var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_START_PX) return;
       drag.moved = true;
-      if (cam.mode === "third") {
-        cam.off -= dx * 0.008;
-        cam.p = Math.min(1.45, Math.max(0.08, cam.p + dy * 0.006));
-      } else if (cam.mode === "first") {
-        cam.lookYaw -= dx * 0.005;
-        cam.lookPitch = Math.min(0.5, Math.max(-0.7, cam.lookPitch - dy * 0.004));
-      } else if (drag.turn) {
-        cam.yaw -= dx * 0.008;
-        cam.p = Math.min(1.45, Math.max(0.08, cam.p + dy * 0.006));
-      } else {
-        // The ground follows the pointer: move the look-at point against the drag.
-        var s = PAN_SPEED * cam.d, a = cam.yaw;
-        cam.target.x -= (Math.cos(a) * dx + Math.sin(a) * dy) * s;
-        cam.target.z += (Math.sin(a) * dx - Math.cos(a) * dy) * s;
-        cam.target.x = Math.max(-api.planeWidth / 2, Math.min(api.planeWidth / 2, cam.target.x));
-        cam.target.z = Math.max(-api.planeDepth / 2, Math.min(api.planeDepth / 2, cam.target.z));
-      }
       drag.x = e.clientX;
       drag.y = e.clientY;
+      if (roverMoving()) return; // looking around is for when the rover is stopped
+      if (cam.mode === "first") {
+        cam.lookYaw -= dx * 0.005;
+        cam.lookPitch = Math.min(0.5, Math.max(-0.7, cam.lookPitch - dy * 0.004));
+      } else {
+        cam.off -= dx * 0.008;
+        cam.p = Math.min(1.45, Math.max(0.08, cam.p + dy * 0.006));
+      }
     });
     ["pointerup", "pointercancel"].forEach(function (n) {
       api.dom.addEventListener(n, function () { drag = null; });
     });
     api.dom.addEventListener("wheel", function (e) {
-      if (cam.mode !== "first") cam.d = Math.min(CAM_MAX, Math.max(CAM_MIN, cam.d * Math.exp(e.deltaY * 0.0012)));
+      if (cam.mode === "chase" && !roverMoving()) cam.d = Math.min(CAM_MAX, Math.max(CAM_MIN, cam.d * Math.exp(e.deltaY * 0.0012)));
       e.preventDefault();
     }, { passive: false });
 
@@ -2086,10 +2110,15 @@
       api.sun.position.set(c.x + 40, c.y + 60, c.z + 25);
       api.sun.target.position.copy(rover3d.position);
 
-      // Camera (see the three modes above). The heading is eased so turns
+      // Camera (see the two modes above). The heading is eased so turns
       // don't jerk the view; the camera always stays above the ground.
       var h = Math.atan2(fwd.x, fwd.z);
       cam.h += angleDiff(h, cam.h) * Math.min(1, dt * 3);
+      // Moving: whatever the user looked at, ease back to the driving view.
+      if (roverMoving()) {
+        var ease = Math.min(1, dt * CAM_RETURN);
+        Object.keys(CAM_DEFAULT).forEach(function (k) { cam[k] += (CAM_DEFAULT[k] - cam[k]) * ease; });
+      }
       if (cam.mode === "first") {
         rover3d.visible = false; // the camera sits on the deck
         var eye = new T.Vector3(c.x + fwd.x * EYE_FORWARD, rover3d.position.y + EYE_HEIGHT, c.z + fwd.z * EYE_FORWARD);
@@ -2099,12 +2128,7 @@
         api.camera.lookAt(eye.x + Math.sin(ly) * Math.cos(lp) * 10, eye.y + Math.sin(lp) * 10, eye.z + Math.cos(ly) * Math.cos(lp) * 10);
         return;
       }
-      var tx, ty, tz, a;
-      if (cam.mode === "fixed") {
-        tx = cam.target.x; tz = cam.target.z; ty = surfaceAt(tx, tz).y; a = cam.yaw;
-      } else {
-        tx = c.x; tz = c.z; ty = rover3d.position.y; a = cam.h + Math.PI + cam.off;
-      }
+      var tx = c.x, tz = c.z, ty = rover3d.position.y, a = cam.h + Math.PI + cam.off;
       var cx = tx + Math.sin(a) * Math.cos(cam.p) * cam.d;
       var cz = tz + Math.cos(a) * Math.cos(cam.p) * cam.d;
       var cy = Math.max(ty + 1.4 + Math.sin(cam.p) * cam.d, surfaceAt(cx, cz).y + 1);

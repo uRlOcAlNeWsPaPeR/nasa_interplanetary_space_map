@@ -62,9 +62,19 @@
   // even where they overlap or for viewers who can't tell the colors apart.
   // Colors are chosen to stand out from the red-brown terrain.
   var HAZARDS = [
-    { key: "slope", color: [236, 72, 255], pattern: "hatch", patternName: "hatched" },          // magenta
-    { key: "dustRisk", color: [255, 52, 40], pattern: "particles", patternName: "drifting sand" } // red
+    { key: "slope", color: [255, 140, 40], pattern: "hatch", patternName: "hatched" },        // orange
+    { key: "dustRisk", color: [214, 158, 20], pattern: "particles", patternName: "drifting sand" } // dark yellow
   ];
+
+  // Mapped sand is always shown in yellow, darker where it's deeper; sand over
+  // SAND_DEEP (the same 80% at which Ridgeback gets stuck, rover.js DEEP_SAND)
+  // is the darkest shade. Hazard zones over the user's limits aren't painted:
+  // they steer routes and stop driving, but the map stays readable.
+  var SAND_SHOW = 0.03;               // fainter than this isn't tinted
+  var SAND_DEEP = 0.8;
+  var SAND_LIGHT = [255, 226, 110];   // a little sand
+  var SAND_DARK = [196, 140, 10];     // a lot of sand
+  var SAND_DEEPEST = [128, 82, 0];    // deep sand Ridgeback can't handle
   var HAZARD_SMOOTH_RADIUS = 3;  // px; smooths zone edges so they don't speckle
   var HAZARD_EDGE = 2;           // px width of the colored zone border
   var HATCH_SPACING = 8;         // px between slope hatch lines
@@ -162,8 +172,7 @@
       var id = function (w) { return w ? w.key + ":" + w.limit + ":" + w.under : ""; };
       var next = key ? { key: key, limit: limit, under: under == null ? null : under } : null;
       if (id(hazardWarning) === id(next)) return;
-      hazardWarning = next;
-      render();
+      hazardWarning = next; // nothing extra is painted now: sand is always shown
     },
     // The point last clicked on the map, or null.
     getSelected: function () { return selected ? { nx: selected.nx, ny: selected.ny } : null; },
@@ -349,7 +358,9 @@
     });
 
     HAZARDS.forEach(function (hz) { coverage[hz.key] = 0; });
-    var zones = buildHazardZones();
+    buildHazardZones();  // for the legend's coverage figures only; zones aren't painted
+    var zones = [];
+    var sandField = getSmoothField("dustRisk");
 
     for (var y = 0; y < H; y++) {
       for (var x = 0; x < W; x++) {
@@ -388,6 +399,22 @@
         var shade = 1 + ((elev.values[i] - left) + (elev.values[i] - up)) / span * 22;
         shade = shade < 0.55 ? 0.55 : shade > 1.35 ? 1.35 : shade;
         r *= shade; g *= shade; b *= shade;
+
+        // Mapped sand: yellow, darker and stronger the deeper it is.
+        var sv = sandField[i];
+        if (sv > SAND_SHOW) {
+          var sc, sa;
+          if (sv > SAND_DEEP) {
+            sc = SAND_DEEPEST; sa = 0.62;
+          } else {
+            var st = (sv - SAND_SHOW) / (SAND_DEEP - SAND_SHOW);
+            sc = [SAND_LIGHT[0] + (SAND_DARK[0] - SAND_LIGHT[0]) * st,
+                  SAND_LIGHT[1] + (SAND_DARK[1] - SAND_LIGHT[1]) * st,
+                  SAND_LIGHT[2] + (SAND_DARK[2] - SAND_LIGHT[2]) * st];
+            sa = 0.18 + 0.32 * st;
+          }
+          r += (sc[0] - r) * sa; g += (sc[1] - g) * sa; b += (sc[2] - b) * sa;
+        }
 
         // Hazards, in order: translucent tint inside the zone (stronger the
         // further over the limit), slope hatching, a solid colored border,
@@ -439,8 +466,7 @@
     drawSelection();
     drawMapFurniture();
 
-    var dustZone = zones.filter(function (zone) { return zone.hz.pattern === "particles"; })[0];
-    setDustZone(dustZone || null);
+    setDustZone(null);
     updateMapLegend();
   }
 
@@ -671,21 +697,42 @@
 
   // Legend lists every hazard (dimmed when off); the route/rover keys below
   // it are static markup in index.html.
+  function legendSwatch(rgb, alpha) {
+    var sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = css(rgb, alpha);
+    return sw;
+  }
+
   function updateMapLegend() {
     mapLegend.textContent = "";
-    HAZARDS.forEach(function (hz) {
-      var field = fieldFor(hz.key);
-      var on = limits[hz.key] < 1;
+    // The always-on sand shading.
+    [[SAND_LIGHT, 0.6, "Mapped sand", " · yellow, darker where it's deeper"],
+     [SAND_DEEPEST, 0.9, "Deep sand (over " + Math.round(SAND_DEEP * 100) + "%)", " · darkest: Ridgeback gets stuck"]
+    ].forEach(function (item) {
       var row = document.createElement("div");
-      row.className = "map-legend-row" + (on ? "" : " is-off");
+      row.className = "map-legend-row";
+      row.appendChild(legendSwatch(item[0], item[1]));
+      var text = document.createElement("span");
+      var name = document.createElement("strong");
+      name.textContent = item[2];
+      text.appendChild(name);
+      text.appendChild(document.createTextNode(item[3]));
+      row.appendChild(text);
+      mapLegend.appendChild(row);
+    });
+    // The user's limits, when set: routes go round ground over them.
+    HAZARDS.forEach(function (hz) {
+      if (!(limits[hz.key] < 1)) return;
+      var field = fieldFor(hz.key);
+      var row = document.createElement("div");
+      row.className = "map-legend-row";
       row.appendChild(makeSwatch(hz));
       var text = document.createElement("span");
       var name = document.createElement("strong");
-      name.textContent = on ? field.label + " > " + field.format(limits[hz.key]) : field.label + " hazard";
+      name.textContent = "Your limit: " + field.label + " > " + field.format(limits[hz.key]);
       text.appendChild(name);
-      text.appendChild(document.createTextNode(on
-        ? " · " + hz.patternName + " · " + Math.round(coverage[hz.key] * 100) + "% of map"
-        : " · off"));
+      text.appendChild(document.createTextNode(" · " + Math.round(coverage[hz.key] * 100) + "% of map; routes go round it"));
       row.appendChild(text);
       mapLegend.appendChild(row);
     });
@@ -793,106 +840,52 @@
     hazardListeners.forEach(function (cb) { cb(); });
   }
 
-  // ---- your limits ------------------------------------------------------------
-  //
-  // How much slope and sand the user can handle, set in a popup at the start
-  // (and again from "Change my limits" in the side panel). Ground over these
-  // limits lights up on the map, and routes go the long way round it.
-
-  var DEFAULT_LIMITS = { slope: 0.4, dustRisk: 0.5 }; // the app's caution levels
-  var limitsBox = document.getElementById("limits-dialog");
-  var LTEXT = null; // content.yourLimits
-
-  function limitText(key, v) {
-    if (v >= 1) return LTEXT ? LTEXT.noLimit : "No limit";
-    var value = fieldFor(key).format(v);
-    return LTEXT ? LTEXT.over.replace("{value}", value) : "over " + value;
-  }
-
-  function makeLimitLabel(hz) {
-    var name = document.createElement("span");
-    name.className = "hazard-name";
-    name.appendChild(makeSwatch(hz));
-    name.appendChild(document.createTextNode(fieldFor(hz.key).label));
-    return name;
-  }
-
-  // Side panel: the current limits and a button to change them.
+  // Hazard limits: one slider per hazard, off (all the way right) until the
+  // user sets it. Ground over a limit lights up, and routes go round it.
   function buildHazardPanel() {
     hazardList.textContent = "";
     HAZARDS.forEach(function (hz) {
-      if (!(hz.key in limits)) limits[hz.key] = DEFAULT_LIMITS[hz.key];
+      var key = hz.key;
+      limits[key] = 1;
+      var field = fieldFor(key);
       var row = document.createElement("div");
-      row.className = "hazard-row" + (limits[hz.key] < 1 ? " is-on" : "");
+      row.className = "hazard-row";
       row.style.setProperty("--hz", css(hz.color));
       var head = document.createElement("div");
       head.className = "hazard-head";
+      var name = document.createElement("span");
+      name.className = "hazard-name";
+      name.appendChild(makeSwatch(hz));
+      name.appendChild(document.createTextNode(field.label));
       var value = document.createElement("span");
-      value.textContent = limitText(hz.key, limits[hz.key]);
-      head.appendChild(makeLimitLabel(hz));
+      head.appendChild(name);
       head.appendChild(value);
+      var slider = makeSlider(field.label + " limit");
+      slider.style.accentColor = css(hz.color);
+      function sync() {
+        limits[key] = slider.value / 100;
+        var on = limits[key] < 1;
+        row.classList.toggle("is-on", on);
+        value.textContent = on ? "above " + field.format(limits[key]) : "off";
+      }
+      slider.addEventListener("input", function () {
+        sync();
+        hazardsChanged();
+      });
+      sync();
       row.appendChild(head);
+      row.appendChild(slider);
       hazardList.appendChild(row);
     });
-    var actions = document.createElement("div");
-    actions.className = "button-row";
-    var change = document.createElement("button");
-    change.type = "button";
-    change.textContent = LTEXT ? LTEXT.change : "Change my limits";
-    change.addEventListener("click", openLimits);
-    actions.appendChild(change);
-    hazardList.appendChild(actions);
   }
 
-  // The popup: one slider per hazard (all the way right = no limit).
-  function openLimits() {
-    if (!limitsBox || !limitsBox.showModal || limitsBox.open) return;
-    var fields = document.getElementById("limits-fields");
-    fields.textContent = "";
-    HAZARDS.forEach(function (hz) {
-      var key = hz.key;
-      var wrap = document.createElement("div");
-      wrap.className = "limit-field";
-      var head = document.createElement("div");
-      head.className = "hazard-head";
-      var value = document.createElement("strong");
-      var slider = makeSlider(fieldFor(key).label + " limit");
-      slider.style.accentColor = css(hz.color);
-      slider.value = String(Math.round(Math.min(1, limits[key]) * 100));
-      slider.setAttribute("data-key", key);
-      function sync() { value.textContent = limitText(key, slider.value / 100); }
-      slider.addEventListener("input", sync);
-      sync();
-      head.appendChild(makeLimitLabel(hz));
-      head.appendChild(value);
-      wrap.appendChild(head);
-      wrap.appendChild(slider);
-      if (LTEXT && LTEXT.hints && LTEXT.hints[key]) {
-        var hint = document.createElement("p");
-        hint.className = "hint";
-        hint.textContent = LTEXT.hints[key];
-        wrap.appendChild(hint);
-      }
-      fields.appendChild(wrap);
-    });
-    limitsBox.showModal();
-  }
-
-  // Closing the popup (Save, or Escape) keeps what the sliders show.
-  function saveLimits() {
-    [].forEach.call(document.querySelectorAll("#limits-fields input[type=range]"), function (s) {
-      limits[s.getAttribute("data-key")] = s.value / 100;
-    });
-    buildHazardPanel();
-    hazardsChanged();
-  }
-
-  if (limitsBox) {
-    limitsBox.addEventListener("close", saveLimits);
-    document.getElementById("limits-save").addEventListener("click", function () { limitsBox.close(); });
-  }
-
-  window.MapUI.openLimits = openLimits;
+  // For the "No safe route" notice's button: show the Hazards tab and its sliders.
+  window.MapUI.openLimits = function () {
+    var tab = document.getElementById("tab-hazards");
+    if (tab) tab.click();
+    var first = hazardList.querySelector("input[type=range]");
+    if (first) first.focus();
+  };
 
   function buildSiteLegend() {
     siteLegend.textContent = "";
@@ -1714,17 +1707,6 @@
   buildLayerPanel();
   buildHazardPanel();
   buildSiteLegend();
-  // Ask for the user's limits at the start (wording from content.js).
-  import("./content.js").then(function (mod) {
-    LTEXT = mod.content.yourLimits || null;
-    if (LTEXT) {
-      document.getElementById("limits-title").textContent = LTEXT.title;
-      document.getElementById("limits-intro").textContent = LTEXT.intro;
-      document.getElementById("limits-save").textContent = LTEXT.save;
-    }
-    buildHazardPanel();
-    if (data.ok) openLimits();
-  }).catch(function () {});
   if (has3d()) {
     world = createWorld();
   } else {

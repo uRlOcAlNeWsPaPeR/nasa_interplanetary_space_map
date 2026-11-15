@@ -369,7 +369,7 @@
       pointer-events: none;
     }
     #risk-hud[hidden] { display: none; }
-    /* Limits popup and the no-route notice. */
+    /* The no-route notice. */
     .app-dialog {
       max-width: 380px;
       width: calc(100% - 32px);
@@ -384,9 +384,6 @@
     .app-dialog h2 { margin: 0 0 8px; font-size: 17px; color: var(--text); text-transform: none; letter-spacing: 0; }
     .app-dialog > p { margin: 0 0 12px; font-size: 13px; line-height: 1.45; }
     .app-dialog .button-row { margin-top: 14px; justify-content: flex-end; }
-    .limit-field { margin: 0 0 14px; }
-    .limit-field input[type=range] { width: 100%; }
-    .limit-field .hint { margin: 2px 0 0; }
     .choice-delete { width: 100%; margin-top: 8px; color: var(--bad); }
     /* Walk or Drive popup next to the double-clicked point (ui.js). */
     #choice-popup {
@@ -450,6 +447,17 @@
     .hazard-warning[hidden] { display: none; }
     .hazard-warning--danger { background: var(--hz); color: #0d1117; }
     .hazard-warning--caution { border: 2px solid var(--hz); color: var(--text); }
+    .sand-distance {
+      margin-top: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      text-align: center;
+      background: rgba(196, 140, 10, .18);
+      border: 2px solid rgb(176, 122, 0);
+    }
+    .sand-distance[hidden] { display: none; }
+    #sand-distance-value { display: block; font-size: 30px; font-weight: 800; line-height: 1.05; color: var(--text); font-variant-numeric: tabular-nums; }
+    #sand-distance-label { display: block; font-size: 11px; color: var(--muted); }
     .hazard-key { display: block; margin-top: 3px; font-size: 11px; font-weight: 500; opacity: .85; }
     .risk-head { display: flex; justify-content: space-between; color: var(--muted); }
     .risk-head strong { color: var(--text); }
@@ -698,6 +706,11 @@
     <div id="risk-cause"></div>
     <!-- Hazard Ridgeback is closing in on (rover.js), in that hazard's colour -->
     <div id="hazard-warning" role="status" aria-live="polite" hidden></div>
+    <!-- Metres left before deep sand Ridgeback can't handle (rover.js) -->
+    <div id="sand-distance" class="sand-distance" hidden>
+      <span id="sand-distance-value"></span>
+      <span id="sand-distance-label"></span>
+    </div>
   </div>
 
   <!-- Walk or Drive? Opened by double-clicking the placed point (ui.js) -->
@@ -710,16 +723,6 @@
     </div>
     <button id="choice-delete" type="button" class="choice-delete"></button>
   </div>
-
-  <!-- Your limits: asked at the start, and from "Change my limits" (ui.js) -->
-  <dialog id="limits-dialog" class="app-dialog" aria-labelledby="limits-title">
-    <h2 id="limits-title"></h2>
-    <p id="limits-intro"></p>
-    <div id="limits-fields"></div>
-    <div class="button-row">
-      <button id="limits-save" type="button" class="primary"></button>
-    </div>
-  </dialog>
 
   <!-- No route within the user's limits (rover.js) -->
   <dialog id="route-notice" class="app-dialog" aria-labelledby="route-notice-title">
@@ -791,9 +794,8 @@
       <p class="manual-only hint">W A S D / arrow keys, or hold the pad. Press Auto to plan a route from here.</p>
       <div class="rover-row" data-help="view">
         <div class="toggle cam-modes" role="group" aria-label="Camera view">
-          <button id="cam-fixed" type="button" aria-pressed="false">Fixed</button>
+          <button id="cam-chase" type="button" aria-pressed="true">Chase cam</button>
           <button id="cam-first" type="button" aria-pressed="false">1st person</button>
-          <button id="cam-third" type="button" aria-pressed="true">3rd person</button>
         </div>
         <select id="rover-speed" aria-label="Simulation speed">
           <option value="0.5">0.5×</option>

@@ -47,6 +47,13 @@ export const content = {
     },
 
     // Pulsing alert in the middle of the screen when the battery hits 0%.
+    // Big number under the risk meter: distance to deep sand (over 80%, the
+    // fixed level where Ridgeback gets stuck).
+    deepSand: {
+      ahead: "to deep sand ahead",
+      inIt: "In deep sand: drive out the way you came",
+    },
+
     batteryAlert: {
       title: "Battery empty",
       text: "Ridgeback has run out of power and can't move. The mission is over.",
@@ -66,7 +73,7 @@ export const content = {
         danger: "Deep sand ahead: Ridgeback will get stuck",
         hereCaution: "On mapped sand",
         hereDanger: "Dug into deep sand: drive out the way you came",
-        key: "Red: sand to avoid · Yellow: all mapped sand",
+        key: "Yellow: mapped sand · the darker, the deeper",
       },
     },
 
@@ -277,21 +284,6 @@ export const content = {
     close: "Close",
   },
 
-  // How much slope and sand the user can handle: asked in a popup at the
-  // start (ui.js). Ridgeback's own limits (rover.js) apply whatever is chosen.
-  yourLimits: {
-    title: "How much can you handle?",
-    intro: "Set the steepest slope and the most mapped sand you're willing to drive through. Routes go the long way round anything over these limits, and tell you if no way there stays within them.",
-    noLimit: "No limit",
-    over: "over {value}",
-    hints: {
-      slope: "Ridgeback can't climb ground over 60% (31°), whatever you choose.",
-      dustRisk: "Ridgeback gets stuck where mapped sand is over 80%, whatever you choose.",
-    },
-    save: "Save my limits",
-    change: "Change my limits",
-  },
-
   // The small "?" buttons next to each group of actions (help.js).
   // Keys match data-help="..." in index.html.
   help: {
@@ -313,9 +305,8 @@ export const content = {
       { name: "Slider", text: "Jump to any point along the route." },
     ],
     view: [
-      { name: "3rd person", text: "Camera follows behind Ridgeback. Drag to swing round it, scroll to zoom." },
-      { name: "1st person", text: "See from Ridgeback's deck, looking where it's heading. Drag to look around." },
-      { name: "Fixed", text: "Camera stays put while Ridgeback drives on. Left-drag moves across the map, right-drag (or Shift-drag) turns and tilts, scroll zooms." },
+      { name: "Chase cam", text: "Camera follows behind Ridgeback. While it's stopped, drag to look around and scroll to zoom; once it moves, the view comes back behind it." },
+      { name: "1st person", text: "See from Ridgeback's deck, looking where it's heading. While it's stopped, drag to look around; once it moves, the view faces forward again." },
       { name: "Speed (1×)", text: "Runs the simulation faster or slower. The battery drains at the same pace." },
     ],
     inspect: [
@@ -334,9 +325,9 @@ export const content = {
       { name: "Reset layers", text: "Back to just the satellite image." },
     ],
     hazards: [
-      { name: "Slope (magenta)", text: "The steepest ground you'll drive on. Ground over it is marked magenta, and Ridgeback stops at it. It can't climb anything over 60%." },
-      { name: "Mapped sand (red)", text: "The most sand you'll drive through. Ground over it is marked red, and Ridgeback stops at it. In deep sand it gets stuck and has to drive out the way it came." },
-      { name: "Change my limits", text: "Set new limits. Routes go the long way round anything over them." },
+      { name: "Sliders", text: "Off until you set them. Drag a slider left to set the most you'll drive through; all the way right turns it off. Routes go the long way round anything over your limits." },
+      { name: "Slope", text: "Routes go round ground steeper than your limit. Ridgeback can't climb anything over 60%, limit or not." },
+      { name: "Mapped sand", text: "Always shown in yellow on the map, darker where it's deeper. Over 80% is deep sand: Ridgeback gets stuck and has to drive out the way it came. The big number at the top counts the metres to it." },
     ],
     map: [
       { name: "+ / −", text: "Zoom the map in or out. Drag to move around when zoomed." },
