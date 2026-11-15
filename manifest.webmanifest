@@ -1,6 +1,6 @@
 {
-  "name": "Interplanetary Survival Guide: Martian Map",
-  "short_name": "Martian Map",
+  "name": "Ridgeback: Interplanetary Survival Guide",
+  "short_name": "Ridgeback",
   "description": "Plan rover drives and Marswalks across Jezero crater with real NASA data.",
   "start_url": "./",
   "scope": "./",
