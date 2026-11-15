@@ -343,6 +343,27 @@
       pointer-events: none;
     }
     #risk-hud[hidden] { display: none; }
+    /* Walk or Drive popup next to the double-clicked point (ui.js). */
+    #choice-popup {
+      position: fixed;
+      z-index: 40;
+      width: 230px;
+      padding: 12px 14px;
+    }
+    #choice-popup[hidden] { display: none; }
+    #choice-title { margin: 0 22px 10px 0; font-size: 13px; font-weight: 600; }
+    #choice-popup .button-row { margin: 0; }
+    #choice-popup .button-row button { flex: 1; }
+    #choice-close {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      line-height: 1;
+      font-size: 16px;
+    }
     /* Battery empty (rover.js): pulses slowly (well under 3 flashes a second),
        and holds still for people who ask for reduced motion. */
     #battery-alert {
@@ -625,6 +646,16 @@
     <div id="risk-cause"></div>
     <!-- Hazard Ridgeback is closing in on (rover.js), in that hazard's colour -->
     <div id="hazard-warning" role="status" aria-live="polite" hidden></div>
+  </div>
+
+  <!-- Walk or Drive? Opened by double-clicking the placed point (ui.js) -->
+  <div id="choice-popup" class="card" role="dialog" aria-labelledby="choice-title" hidden>
+    <button id="choice-close" type="button" aria-label="Close">&times;</button>
+    <p id="choice-title"></p>
+    <div class="button-row">
+      <button id="choice-walk" type="button" class="primary"></button>
+      <button id="choice-drive" type="button" class="primary"></button>
+    </div>
   </div>
 
   <!-- Battery empty (rover.js); wording from content.js -->

@@ -557,13 +557,18 @@
 
   // ---- controls --------------------------------------------------------------------------
 
-  // A click on the map or the ground while the Walk tab is open plans the walk.
-  map.onSelect(function (p) {
-    if (!grid || !panel.open || walk) return;
-    target = { nx: p.nx, ny: p.ny };
-    message = "";
-    if (stale()) { if (!rb.isMoving()) computePlan(); }
-    else updateRoute();
+  // "Walk here" from the point popup (right-click a spot, double-click it):
+  // plan the safest walk there and open the Walk tab. It still only sets off
+  // when Walk is pressed.
+  map.onChoose(function (mode, p) {
+    if (mode !== "walk" || !grid) return;
+    if (!walk) {
+      target = { nx: p.nx, ny: p.ny };
+      message = "";
+      if (stale()) { if (!rb.isMoving()) computePlan(); }
+      else updateRoute();
+    }
+    panel.open = true;
     map.redraw();
     renderCard();
   });

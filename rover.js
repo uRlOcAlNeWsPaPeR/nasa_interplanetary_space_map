@@ -1454,12 +1454,16 @@
     if (clearSpot) clearSpot.click();
   });
 
-  // With the Plan or Drive tab open, a click on the ground or the minimap
-  // makes that spot the destination and its three routes appear, without
-  // changing tab. Nothing moves until the user presses Start drive.
-  var planPanel = document.getElementById("route-panel");
-  map.onSelect(function (p) {
-    if (!p || !(planPanel.open || panel.open)) return;
+  // "Drive here" from the point popup (right-click a spot, double-click it):
+  // that spot becomes the destination, its three routes appear and the Drive
+  // tab opens. Nothing moves until the user presses Start drive.
+  map.onChoose(function (mode, p) {
+    if (mode !== "drive" || !p) return;
+    driveTo(p);
+    panel.open = true;
+  });
+
+  function driveTo(p) {
     var siteIdx = -1;
     sites.forEach(function (site, i) {
       if (site.nx === p.nx && site.ny === p.ny) siteIdx = i;
@@ -1480,10 +1484,10 @@
       custom.value = "custom";
       toSelect.appendChild(custom);
     }
-    custom.textContent = "Clicked point (" + (data.formatLatLon ? latLon(p) : p.nx.toFixed(2) + ", " + p.ny.toFixed(2)) + ")";
+    custom.textContent = "Chosen point (" + (data.formatLatLon ? latLon(p) : p.nx.toFixed(2) + ", " + p.ny.toFixed(2)) + ")";
     toSelect.value = "custom";
     setDestination({ nx: p.nx, ny: p.ny, name: custom.textContent });
-  });
+  }
 
   function replanKeepDriving() {
     var wasPlaying = rover.playing;

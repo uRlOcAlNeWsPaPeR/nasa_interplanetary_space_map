@@ -81,7 +81,7 @@ export const content = {
     },
 
     hints: {
-      firstMove: "Pick a destination above, or click a spot on the map or the ground. Then choose a route and press Start drive in the Drive tab.",
+      firstMove: "Pick a destination above, or right-click a spot on the map or the ground, double-click it and choose Drive here. Then pick a route and press Start drive in the Drive tab.",
       lowPower: "Tip: switch on the Night-time IR layer. Ground that gets coldest at night (dark blue) drains the battery faster.",
       slope: "Tip: the Slope layer shows steep ground. Brighter means steeper.",
       dust: "Tip: a dust storm is coming. Sunlit, flat ground is the best place to wait it out.",
@@ -185,7 +185,7 @@ export const content = {
   // Astronaut walk planner (walk.js). The numbers come from walk-core.js
   // (NASA's Artemis suit planning figures); walk.js fills in the {placeholders}.
   walk: {
-    intro: "The coloured ground is where an astronaut can walk from Ridgeback and get back safely. Click a spot in it to plan a walk.",
+    intro: "The coloured ground is where an astronaut can walk from Ridgeback and get back safely. Right-click a spot in it, double-click the point and choose Walk here.",
     moreTitle: "Options & limits",
     siteTime: "Time at the site",
     siteOptions: [
@@ -215,7 +215,7 @@ export const content = {
     },
     status: {
       moving: "Stop Ridgeback to plan a walk.",
-      pick: "Click a spot in the coloured area.",
+      pick: "Right-click a spot in the coloured area, then double-click it and choose Walk here.",
       safe: "Safest route found. Check the details, then press Walk.",
       tight: "Safest route found, but it only just fits. Check the details, then press Walk.",
       risky: "No fully safe route here: the best one (yellow) crosses risky ground. Check the details before you walk.",
@@ -259,6 +259,14 @@ export const content = {
       "These are NASA's planning figures for the Artemis Moon suit: NASA has no Mars suit specification yet.",
   },
 
+  // Popup opened by double-clicking the placed point (ui.js).
+  choice: {
+    title: "What do you want to do here?",
+    walk: "Walk here",
+    drive: "Drive here",
+    close: "Close",
+  },
+
   // The small "?" buttons next to each group of actions (help.js).
   // Keys match data-help="..." in index.html.
   help: {
@@ -268,7 +276,7 @@ export const content = {
       { name: "Start over", text: "Full battery, back at the start site, routes cleared." },
     ],
     plan: [
-      { name: "Start site / Destination", text: "Pick where Ridgeback sets off and where it should go. Or click a spot on the map or the ground while this tab is open." },
+      { name: "Start site / Destination", text: "Pick where Ridgeback sets off and where it should go. Or right-click a spot on the map or the ground, double-click it and choose Drive here." },
       { name: "Avoid hazard zones", text: "Keeps routes out of the areas you highlight under Map layers & hazards." },
       { name: "Clear", text: "Removes the destination, its routes and the marker on the map." },
       { name: "Route cards", text: "Three options: Fastest, Safest and Balanced. Pick one, then press Start drive in the Drive tab." },
@@ -285,11 +293,11 @@ export const content = {
       { name: "Speed (1×)", text: "Runs the simulation faster or slower. The battery drains at the same pace." },
     ],
     inspect: [
-      { name: "Click a spot", text: "While this tab is open, clicking the map or the ground shows the readings for that spot." },
+      { name: "Right-click a spot", text: "Places a point on the map or the ground and shows its readings here. Double-click the point to walk or drive there." },
       { name: "Clear", text: "Removes the marker from the spot you clicked." },
     ],
     walk: [
-      { name: "Click a spot", text: "While this tab is open, clicking inside the coloured area plans the safest walk there and back." },
+      { name: "Right-click, then double-click", text: "Right-click a spot inside the coloured area, double-click the point and choose Walk here to plan the safest walk there and back." },
       { name: "Walk / Stop walk", text: "Sets off on the planned walk once you've checked the details, or calls it off. If the route crosses risky ground (yellow), you're asked to confirm first." },
       { name: "Clear", text: "Removes the planned walk." },
       { name: "Time at the site", text: "Under Options & limits: how long the astronaut spends working once they arrive." },
@@ -297,7 +305,7 @@ export const content = {
     map: [
       { name: "+ / −", text: "Zoom the map in or out. Drag to move around when zoomed." },
       { name: "Fit", text: "Shows the whole map again." },
-      { name: "Expand map", text: "Makes the map bigger. Click any spot on it to inspect it." },
+      { name: "Expand map", text: "Makes the map bigger. Right-click any spot to place a point; double-click the point to walk or drive there." },
     ],
   },
 };

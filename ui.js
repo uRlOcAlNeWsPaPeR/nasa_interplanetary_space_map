@@ -855,7 +855,7 @@
     if (!selected) {
       var hint = document.createElement("p");
       hint.className = "empty";
-      hint.textContent = "Click the map or the ground to sample a location.";
+      hint.textContent = "Right-click the map or the ground to place a point and see its readings.";
       infoBody.appendChild(hint);
       return;
     }
@@ -1016,8 +1016,9 @@
     };
   }
 
-  // Shared by the 2D canvas and the 3D view.
+  // Shared by the 2D canvas and the 3D view (right-click places the point).
   function selectAt(p) {
+    closeChoice();
     selected = p;
     var site = nearestSite(p.nx, p.ny);
     if (site) selected = { nx: site.nx, ny: site.ny }; // snap to the site
@@ -1026,6 +1027,60 @@
     var spot = { nx: selected.nx, ny: selected.ny };
     selectListeners.forEach(function (cb) { cb(spot); });
   }
+
+  // ---- Walk or Drive popup ------------------------------------------------------
+  //
+  // Double-clicking the placed point asks whether to walk or drive there. The
+  // choice goes to walk.js / rover.js (MapUI.onChoose), which plan it and open
+  // their tab.
+
+  var POINT_HIT_PX = 16;       // how close a double-click must be to the point (minimap)
+  var POINT_HIT_PX_3D = 32;    // ... and on the 3D ground
+  var choiceEl = document.getElementById("choice-popup");
+  var chooseListeners = [];
+  var choiceSpot = null;
+
+  function openChoice(x, y) {
+    if (!choiceEl || !selected) return;
+    choiceSpot = { nx: selected.nx, ny: selected.ny };
+    choiceEl.hidden = false;
+    var w = choiceEl.offsetWidth, h = choiceEl.offsetHeight;
+    choiceEl.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, x + 12)) + "px";
+    choiceEl.style.top = Math.max(8, Math.min(window.innerHeight - h - 8, y + 12)) + "px";
+    document.getElementById("choice-walk").focus();
+  }
+
+  function closeChoice() {
+    if (choiceEl) choiceEl.hidden = true;
+    choiceSpot = null;
+  }
+
+  function choose(mode) {
+    var spot = choiceSpot;
+    closeChoice();
+    if (spot) chooseListeners.forEach(function (cb) { cb(mode, spot); });
+  }
+
+  if (choiceEl) {
+    document.getElementById("choice-walk").addEventListener("click", function () { choose("walk"); });
+    document.getElementById("choice-drive").addEventListener("click", function () { choose("drive"); });
+    document.getElementById("choice-close").addEventListener("click", closeChoice);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeChoice(); });
+    // A press anywhere else closes it.
+    document.addEventListener("pointerdown", function (e) {
+      if (!choiceEl.hidden && !choiceEl.contains(e.target)) closeChoice();
+    });
+    import("./content.js").then(function (mod) {
+      var c = mod.content.choice;
+      if (!c) return;
+      document.getElementById("choice-title").textContent = c.title;
+      document.getElementById("choice-walk").textContent = c.walk;
+      document.getElementById("choice-drive").textContent = c.drive;
+      document.getElementById("choice-close").setAttribute("aria-label", c.close);
+    }).catch(function () {});
+  }
+
+  window.MapUI.onChoose = function (cb) { chooseListeners.push(cb); };
 
   function showHover(p) {
     if (!p) {
@@ -1039,12 +1094,20 @@
     })).join("  ·  ");
   }
 
-  canvas.addEventListener("click", function (event) {
-    if (zoomDrag.wasDrag) {
-      zoomDrag.wasDrag = false; // that was a pan, not a click
-      return;
-    }
+  // Left-click no longer places points (it pans when zoomed); right-click does.
+  canvas.addEventListener("click", function () {
+    zoomDrag.wasDrag = false;
+  });
+  canvas.addEventListener("contextmenu", function (event) {
+    event.preventDefault();
     selectAt(eventToNormalized(event));
+  });
+  // Double-click the placed point: Walk or Drive?
+  canvas.addEventListener("dblclick", function (event) {
+    if (!selected) return;
+    var r = canvas.getBoundingClientRect();
+    var sx = r.left + selected.nx * r.width, sy = r.top + selected.ny * r.height;
+    if (Math.hypot(event.clientX - sx, event.clientY - sy) <= POINT_HIT_PX) openChoice(event.clientX, event.clientY);
   });
 
   // ---- 2D zoom and pan --------------------------------------------------------
@@ -1336,14 +1399,36 @@
 
     var downAt = null;
     var el = renderer.domElement;
-    el.addEventListener("pointerdown", function (e) { downAt = { x: e.clientX, y: e.clientY }; });
+    // Right-click (or Ctrl-click on a Mac) places a point; any drag just looks around.
+    function isRight(e) { return e.button === 2 || (e.button === 0 && e.ctrlKey); }
+    var lastPointer = "mouse";
+    el.addEventListener("pointerdown", function (e) {
+      lastPointer = e.pointerType;
+      downAt = { x: e.clientX, y: e.clientY, right: isRight(e) };
+    });
     el.addEventListener("pointerup", function (e) {
-      if (!downAt || e.button !== 0) return;
+      if (!downAt || !downAt.right || !isRight(e)) { downAt = null; return; }
       var moved = Math.abs(e.clientX - downAt.x) + Math.abs(e.clientY - downAt.y);
       downAt = null;
       if (moved > CLICK_SLOP) return; // that was a drag to look around
       var p = pick(e);
       if (p) selectAt(p);
+    });
+    // Phones have no right-click: a long press (which raises contextmenu) places the point.
+    el.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      if (lastPointer !== "touch") return;
+      var p = pick(e);
+      if (p) selectAt(p);
+    });
+    // Double-click the placed point: Walk or Drive?
+    el.addEventListener("dblclick", function (e) {
+      if (!selected) return;
+      var v = surfacePoint(selected.nx, selected.ny, 0.15).project(camera);
+      if (v.z > 1) return; // behind the camera
+      var r = el.getBoundingClientRect();
+      var sx = r.left + (v.x + 1) / 2 * r.width, sy = r.top + (1 - v.y) / 2 * r.height;
+      if (Math.hypot(e.clientX - sx, e.clientY - sy) <= POINT_HIT_PX_3D) openChoice(e.clientX, e.clientY);
     });
     // Hover readout, at most once per frame (picking the big mesh isn't free).
     var hoverEvent = null;
