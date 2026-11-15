@@ -57,7 +57,7 @@ export const content = {
     },
 
     hints: {
-      firstMove: "Pick a destination above, or click a spot on the map. Then choose a route and press Start drive in the Drive tab.",
+      firstMove: "Pick a destination above, or click a spot on the map or the ground. Then choose a route and press Start drive in the Drive tab.",
       lowPower: "Tip: switch on the Night-time IR layer. Ground that gets coldest at night (dark blue) drains the battery faster.",
       slope: "Tip: the Slope layer shows steep ground. Brighter means steeper.",
       dust: "Tip: a dust storm is coming. Sunlit, flat ground is the best place to wait it out.",
@@ -160,8 +160,8 @@ export const content = {
   // Astronaut walk planner (walk.js). The numbers come from walk-core.js
   // (NASA's Artemis suit planning figures); walk.js fills in the {placeholders}.
   walk: {
-    intro: "Park Ridgeback, then plan a walk on foot: where you can go and still get back before the suit runs low.",
-    showRange: "Show walking range",
+    intro: "The coloured ground is where an astronaut can walk from Ridgeback and get back safely. Click a spot in it to plan a walk.",
+    moreTitle: "Options & limits",
     siteTime: "Time at the site",
     siteOptions: [
       { hours: 0.5, label: "30 min" },
@@ -173,15 +173,15 @@ export const content = {
       tight: "Fits, but only just",
     },
     buttons: {
-      here: "Walk here",
-      start: "Start walk",
+      start: "Walk",
       stop: "Stop walk",
-      clear: "Clear walk",
+      clear: "Clear",
     },
     status: {
-      moving: "Stop Ridgeback to see where you can walk.",
-      pick: "Click a spot on the map or the ground, then press Walk here.",
-      planned: "Walk planned. Press Start walk when you're ready.",
+      moving: "Stop Ridgeback to plan a walk.",
+      pick: "Click a spot in the coloured area.",
+      safe: "Safest route found. Check the details, then press Walk.",
+      tight: "Safest route found, but it only just fits. Check the details, then press Walk.",
       out: "Walking out · {left} of the plan left",
       site: "Working at the site · {left} of the plan left",
       back: "Walking back to Ridgeback · {left} of the plan left",
@@ -191,26 +191,34 @@ export const content = {
       noData: "The walk planner needs the map data, which didn't load.",
     },
     reasons: {
-      steep: "Too steep: that ground is over {deg}°, the steepest a suited astronaut walks on.",
-      cutOff: "Can't get there on foot: steep ground cuts it off.",
-      tooFar: "Too far: the round trip plus time at the site comes to {total}, over the {plan} plan.",
+      steep: "Can't walk there: that ground is over {deg}°, the steepest a suited astronaut walks on.",
+      cutOff: "Can't walk there: steep ground cuts it off.",
+      tooFar: "Too far for a safe walk: there and back plus time at the site comes to {total}, over the {plan} plan.",
     },
     stats: {
-      distance: "Distance, one way",
-      out: "Walk out",
-      back: "Walk back",
+      out: "Time there",
+      back: "Time back",
       site: "At the site",
       total: "Total",
       totalValue: "{total} of {plan}",
       reserve: "Suit time to spare",
-      steepest: "Steepest ground",
-      climb: "Climb on the way out",
-      sand: "On mapped sand",
-      none: "none",
+      distance: "Distance, one way",
     },
+    // What the safest route steers around, compared with walking straight there.
+    risks: {
+      tooSteep: "ground too steep to walk",
+      steep: "steep slopes",
+      sand: "mapped sand",
+      boulders: "boulder fields",
+      zone: "your hazard zones",
+    },
+    avoids: "Avoids {list} that the straight line (red) would cross.",
+    clear: "No risky ground on the way: the safest route is close to a straight line.",
+    crosses: "Still crosses about {list}: there's no safer way that fits the plan.",
     limits:
       "Limits: a {plan} plan per walk, with the suit good for {max}; the rest is reserve. " +
       "{kmh} on flat ground, never on ground over {deg}°. Slopes slow you down (Tobler's hiking function), and so does mapped sand, by 30% (our estimate). " +
+      "The route steers around slopes over {risky}° (Apollo crews kept below that), mapped sand, the boulder fields mapped by USGS, and any hazard zones you highlight. " +
       "These are NASA's planning figures for the Artemis Moon suit: NASA has no Mars suit specification yet.",
   },
 
@@ -223,7 +231,7 @@ export const content = {
       { name: "Start over", text: "Full battery, back at the start site, routes cleared." },
     ],
     plan: [
-      { name: "Start site / Destination", text: "Pick where Ridgeback sets off and where it should go. You can also click the map." },
+      { name: "Start site / Destination", text: "Pick where Ridgeback sets off and where it should go. Or click a spot on the map or the ground while this tab is open." },
       { name: "Avoid hazard zones", text: "Keeps routes out of the areas you highlight under Map layers & hazards." },
       { name: "Route cards", text: "Three options: Fastest, Safest and Balanced. Pick one, then press Start drive in the Drive tab." },
     ],
@@ -239,14 +247,14 @@ export const content = {
       { name: "Speed (1×)", text: "Runs the simulation faster or slower. The battery drains at the same pace." },
     ],
     inspect: [
-      { name: "Plan routes here", text: "Makes the spot you clicked the destination and plans three routes to it." },
-      { name: "Walk here", text: "Plans a walk on foot from parked Ridgeback to the spot you clicked." },
+      { name: "Click a spot", text: "While this tab is open, clicking the map or the ground shows the readings for that spot." },
       { name: "Clear", text: "Removes the marker from the spot you clicked." },
     ],
     walk: [
-      { name: "Show walking range", text: "Colours the ground you can reach on foot and still get back in time." },
-      { name: "Time at the site", text: "How long the astronaut spends working once they arrive." },
-      { name: "Start walk / Clear walk", text: "Sets off on the planned walk, or removes the plan." },
+      { name: "Click a spot", text: "While this tab is open, clicking inside the coloured area plans the safest walk there and back." },
+      { name: "Walk / Stop walk", text: "Sets off on the planned walk once you've checked the details, or calls it off." },
+      { name: "Clear", text: "Removes the planned walk." },
+      { name: "Time at the site", text: "Under Options & limits: how long the astronaut spends working once they arrive." },
     ],
     map: [
       { name: "+ / −", text: "Zoom the map in or out. Drag to move around when zoomed." },

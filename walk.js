@@ -1,10 +1,15 @@
 /*
- * walk.js -- the astronaut walk planner: the Walk card, the walking range on
- * the minimap and the 3D ground, the walking route, and the walk itself.
+ * walk.js -- the Walk tab: where an astronaut can safely walk from parked
+ * Ridgeback, the safest walking route to a clicked spot, and the walk itself.
  *
- * The maths is in walk-core.js (NASA suit planning limits); the wording is in
- * content.js under content.walk. Ridgeback's position and the lock that keeps
- * it parked while someone is outside come from rover.js (window.Ridgeback).
+ * Flow: open the Walk tab (the walking range shows) -> click a spot in it
+ * (the safest route and its times appear) -> press Walk (only then does the
+ * astronaut set off).
+ *
+ * The maths is in walk-core.js (NASA suit limits, risky-ground avoidance);
+ * the wording is in content.js under content.walk. Ridgeback's position and
+ * the lock that keeps it parked while someone is outside come from rover.js
+ * (window.Ridgeback); clicks come from ui.js (MapUI.onSelect).
  */
 (function () {
   "use strict";
@@ -19,17 +24,16 @@
   if (!panel || !core || !map || !rb) return;
 
   var introEl = document.getElementById("walk-intro");
-  var rangeBox = document.getElementById("walk-range");
-  var rangeLabel = document.getElementById("walk-range-label");
-  var siteLabel = document.getElementById("walk-site-label");
-  var siteSelect = document.getElementById("walk-site");
   var legendEl = document.getElementById("walk-legend");
   var statusEl = document.getElementById("walk-status");
   var statsEl = document.getElementById("walk-stats");
+  var avoidsEl = document.getElementById("walk-avoids");
   var startBtn = document.getElementById("walk-start");
   var clearBtn = document.getElementById("walk-clear");
+  var moreTitle = document.getElementById("walk-more-title");
+  var siteLabel = document.getElementById("walk-site-label");
+  var siteSelect = document.getElementById("walk-site");
   var limitsEl = document.getElementById("walk-limits");
-  var hereBtn = document.getElementById("walk-here");
   var marker2d = document.getElementById("walker-2d");
 
   // ---- drawing style (not data) ----------------------------------------------
@@ -37,8 +41,10 @@
   var EASY = [163, 255, 79];    // lime: the round trip fits easily
   var TIGHT = [255, 154, 60];   // orange: it fits, but only just
   var RANGE_ALPHA = 0.4;
+  var DIRECT_COLOR = "rgba(255, 90, 80, .85)"; // the straight line the route avoids
   var STATUS_EVERY = 0.15;      // seconds between card updates while walking
   var DEFAULT_SITE_HOURS = 1;
+  var BOULDER_CELLS = 2;        // keep ~150 m from each mapped megabreccia block
 
   // ---- text ---------------------------------------------------------------------
 
@@ -60,6 +66,13 @@
   function kmText(km) {
     return km < 1 ? Math.round(km * 1000) + " m" : km.toFixed(km < 10 ? 2 : 1) + " km";
   }
+  function metresText(m) {
+    return m < 1000 ? Math.max(50, Math.round(m / 50) * 50) + " m" : (m / 1000).toFixed(1) + " km";
+  }
+  function listText(items) {
+    if (items.length < 2) return items.join("");
+    return items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
+  }
 
   // ---- the walking grid ------------------------------------------------------------
 
@@ -72,8 +85,39 @@
       cellHm: scale.heightKm * 1000 / (size.h - 1),
       elevation: terrain.grid("elevation"),
       slope: terrain.grid("slope"),
-      sand: terrain.grid("sand")
+      sand: terrain.grid("sand"),
+      boulders: boulderMask(size.w, size.h)
     });
+  }
+
+  // Cells near the megabreccia blocks mapped by USGS (SIM 3464).
+  function boulderMask(w, h) {
+    var mask = new Uint8Array(w * h);
+    var feats = data.getGeologyFeatures ? data.getGeologyFeatures().megabreccia : [];
+    (feats || []).forEach(function (p) {
+      var cx = Math.round(p.nx * (w - 1)), cy = Math.round(p.ny * (h - 1));
+      for (var dy = -BOULDER_CELLS; dy <= BOULDER_CELLS; dy++) {
+        for (var dx = -BOULDER_CELLS; dx <= BOULDER_CELLS; dx++) {
+          var x = cx + dx, y = cy + dy;
+          if (x < 0 || y < 0 || x >= w || y >= h || dx * dx + dy * dy > BOULDER_CELLS * BOULDER_CELLS) continue;
+          mask[y * w + x] = 1;
+        }
+      }
+    });
+    return mask;
+  }
+
+  // The hazard zones the user highlights under Map layers & hazards.
+  function updateZones() {
+    if (!grid) return;
+    var slopeLimit = map.hazardLimit ? map.hazardLimit("slope") : null;
+    var sandLimit = map.hazardLimit ? map.hazardLimit("dustRisk") : null;
+    if (slopeLimit == null && sandLimit == null) { core.setZones(grid, null); return; }
+    var mask = new Uint8Array(grid.w * grid.h);
+    for (var i = 0; i < mask.length; i++) {
+      if ((slopeLimit != null && grid.slope[i] > slopeLimit) || (sandLimit != null && grid.sand[i] > sandLimit)) mask[i] = 1;
+    }
+    core.setZones(grid, mask);
   }
 
   function cellOf(p) {
@@ -89,7 +133,7 @@
   // ---- state ------------------------------------------------------------------------
 
   var siteHours = DEFAULT_SITE_HOURS;
-  var res = null;        // quickest walks from Ridgeback's spot (walk-core plan)
+  var res = null;        // safest walks from Ridgeback's spot (walk-core plan)
   var target = null;     // { nx, ny } the chosen spot
   var route = null;      // walk-core route to the target
   var walk = null;       // the walk in progress
@@ -104,6 +148,9 @@
     var p = rb.position();
     return !res || !p || rb.isMoving() || cellOf(p) !== res.src;
   }
+
+  // Walk things are drawn while the Walk tab is open, or while someone is out.
+  function showing() { return panel.open || !!walk; }
 
   function computePlan() {
     var p = rb.position();
@@ -121,7 +168,7 @@
       var c = cellOf(target);
       route = core.routeTo(grid, res, c % grid.w, Math.floor(c / grid.w), siteHours);
     }
-    set3dRoute();
+    set3d();
   }
 
   function buildRange() {
@@ -133,8 +180,8 @@
     var g = rangeCanvas.getContext("2d");
     var img = g.createImageData(grid.w, grid.h);
     var px = img.data, a = Math.round(RANGE_ALPHA * 255);
-    for (var i = 0; i < res.total.length; i++) {
-      var level = core.classify(res.total[i], siteHours);
+    for (var i = 0; i < res.walk.length; i++) {
+      var level = core.classify(res.walk[i], siteHours);
       if (!level) continue;
       var c = level === 1 ? EASY : TIGHT;
       px[i * 4] = c[0]; px[i * 4 + 1] = c[1]; px[i * 4 + 2] = c[2]; px[i * 4 + 3] = a;
@@ -142,24 +189,41 @@
     g.putImageData(img, 0, 0);
   }
 
+  function directRisky() {
+    if (!route || !route.path.length) return false;
+    var d = route.direct;
+    return d.tooSteep || d.steep || d.sand || d.boulders || d.zone;
+  }
+
   // ---- map drawing ---------------------------------------------------------------
 
-  // Under the labels and also on the 3D ground.
+  // The walking range: under the labels and also on the 3D ground.
   map.addGroundOverlay(function (ctx, W, H) {
-    if (!rangeBox.checked || !rangeCanvas || stale()) return;
+    if (!panel.open || walk || !rangeCanvas || stale()) return;
     ctx.save();
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(rangeCanvas, 0, 0, W, H);
     ctx.restore();
   });
 
-  // The walking route (dashed) and the chosen spot, on the minimap only.
+  // The straight line (red), the safest route (dashed white) and the spot.
   map.addOverlay(function (ctx, W, H) {
-    if (!target || stale()) return;
+    if (!target || !showing() || (stale() && !walk)) return;
     var tx = target.nx * W, ty = target.ny * H;
+    ctx.save();
+    ctx.lineJoin = ctx.lineCap = "round";
+    if (directRisky()) {
+      var s = posOf(res.src);
+      ctx.beginPath();
+      ctx.moveTo(s.nx * W, s.ny * H);
+      ctx.lineTo(tx, ty);
+      ctx.setLineDash([3, 4]);
+      ctx.strokeStyle = DIRECT_COLOR;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     if (route && route.path.length > 1) {
-      ctx.save();
-      ctx.lineJoin = ctx.lineCap = "round";
       ctx.beginPath();
       route.path.forEach(function (cell, i) {
         var p = posOf(cell);
@@ -172,9 +236,8 @@
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.restore();
+      ctx.setLineDash([]);
     }
-    ctx.save();
     ctx.beginPath();
     ctx.arc(tx, ty, 6, 0, Math.PI * 2);
     ctx.lineWidth = 4;
@@ -186,9 +249,11 @@
     ctx.restore();
   });
 
-  // ---- 3D: footstep dots and the astronaut ---------------------------------------------
+  // ---- 3D: footstep dots, the straight line and the astronaut ---------------------------
 
   var MAX_DOTS = 3000;
+  var MAX_DIRECT_DOTS = 600;
+  var DIRECT_SPACING = 0.6;     // world units between the straight line's red dots
 
   function build3d(api) {
     var T = api.THREE;
@@ -200,6 +265,16 @@
     dots.count = 0;
     dots.frustumCulled = false;
     api.scene.add(dots);
+
+    // The straight line as red dots, so it reads apart from the white footsteps.
+    var direct = new T.InstancedMesh(
+      new T.SphereGeometry(0.14, 8, 6),
+      new T.MeshBasicMaterial({ color: 0xff3b30 }),
+      MAX_DIRECT_DOTS
+    );
+    direct.count = 0;
+    direct.frustumCulled = false;
+    api.scene.add(direct);
 
     // Same visual scale as Ridgeback (about 2.6 units long), facing +z.
     var suit = new T.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.8 });
@@ -237,6 +312,19 @@
         dots.count = n;
         dots.instanceMatrix.needsUpdate = true;
       },
+      setDirect: function (a, b) {
+        if (!a) { direct.count = 0; return; }
+        var lenUnits = Math.hypot((b.nx - a.nx) * api.planeWidth, (b.ny - a.ny) * api.planeDepth);
+        var n = Math.max(2, Math.min(MAX_DIRECT_DOTS, Math.round(lenUnits / DIRECT_SPACING)));
+        for (var i = 0; i < n; i++) {
+          var f = i / (n - 1);
+          var v = api.surfacePoint(a.nx + (b.nx - a.nx) * f, a.ny + (b.ny - a.ny) * f, 0.22);
+          m4.makeTranslation(v.x, v.y, v.z);
+          direct.setMatrixAt(i, m4);
+        }
+        direct.count = n;
+        direct.instanceMatrix.needsUpdate = true;
+      },
       setFigure: function (p, dir, stride) {
         figure.visible = !!p;
         if (!p) return;
@@ -251,14 +339,16 @@
     };
   }
 
-  function set3dRoute() {
+  function set3d() {
     if (!scene3d) return;
-    scene3d.setRoute(route && route.path.length > 1 && !stale() ? route.path : null);
+    var on = showing() && route && route.path.length > 1 && (!stale() || !!walk);
+    scene3d.setRoute(on ? route.path : null);
+    scene3d.setDirect(on && directRisky() ? posOf(res.src) : null, target);
   }
 
   map.on3dReady(function (api) {
     scene3d = build3d(api);
-    set3dRoute();
+    set3d();
   });
 
   // ---- the walk ------------------------------------------------------------------------
@@ -281,6 +371,7 @@
     };
     message = "";
     rb.setLocked(true);
+    map.redraw(); // the range steps aside while someone is out
     renderCard();
   }
 
@@ -293,6 +384,8 @@
     message = kind === "done"
       ? fill(t("status.done"), { used: hoursText(w.total), reserve: hoursText(core.LIMITS.suitMaxHours - w.total) })
       : t("status." + kind);
+    set3d();
+    map.redraw();
     renderCard();
   }
 
@@ -340,13 +433,31 @@
     statsEl.appendChild(dd);
   }
 
+  // What the route steers around, and anything risky it still has to cross.
+  function avoidsText() {
+    var d = route.direct, c = route.crosses, lines = [];
+    var avoided = [];
+    if (d.tooSteep) avoided.push(t("risks.tooSteep"));
+    ["steep", "sand", "boulders", "zone"].forEach(function (k) {
+      if (d[k] && !c[k]) avoided.push(t("risks." + k));
+    });
+    var crossed = [];
+    ["steep", "sand", "boulders", "zone"].forEach(function (k) {
+      if (c[k] > 0) crossed.push(metresText(c[k]) + " of " + t("risks." + k));
+    });
+    if (avoided.length) lines.push(fill(t("avoids"), { list: listText(avoided) }));
+    if (crossed.length) lines.push(fill(t("crosses"), { list: listText(crossed) }));
+    if (!lines.length) lines.push(t("clear"));
+    return lines.join(" ");
+  }
+
   function renderCard() {
     if (!TEXT) return;
     statsEl.textContent = "";
-    legendEl.hidden = !rangeBox.checked;
+    avoidsEl.textContent = "";
     if (!grid) {
       statusEl.textContent = t("status.noData");
-      startBtn.disabled = clearBtn.disabled = rangeBox.disabled = true;
+      startBtn.disabled = clearBtn.disabled = true;
       return;
     }
     var L = core.LIMITS;
@@ -363,22 +474,20 @@
         deg: L.maxSlopeDeg, total: hoursText(route.totalHours), plan: hoursText(L.planHours)
       });
     } else if (route) {
-      status = t("status.planned");
+      status = route.level === 2 ? t("status.tight") : t("status.safe");
     } else {
       status = t("status.pick");
     }
     statusEl.textContent = status;
 
     if (route && route.reachable && (walk || !isStale)) {
-      row(t("stats.distance"), kmText(route.distanceKm));
       row(t("stats.out"), hoursText(route.outHours));
       row(t("stats.back"), hoursText(route.backHours));
       row(t("stats.site"), hoursText(route.siteHours));
       row(t("stats.total"), fill(t("stats.totalValue"), { total: hoursText(route.totalHours), plan: hoursText(L.planHours) }));
       row(t("stats.reserve"), hoursText(L.suitMaxHours - route.totalHours));
-      row(t("stats.steepest"), route.steepestDeg.toFixed(1) + "°");
-      row(t("stats.climb"), Math.round(route.climbM) + " m");
-      row(t("stats.sand"), route.sandShare > 0 ? Math.round(route.sandShare * 100) + "%" : t("stats.none"));
+      row(t("stats.distance"), kmText(route.distanceKm));
+      avoidsEl.textContent = avoidsText();
     }
 
     startBtn.textContent = walk ? t("buttons.stop") : t("buttons.start");
@@ -388,7 +497,7 @@
 
   function applyText() {
     introEl.textContent = t("intro");
-    rangeLabel.textContent = t("showRange");
+    moreTitle.textContent = t("moreTitle");
     siteLabel.textContent = t("siteTime");
     siteSelect.textContent = "";
     (t("siteOptions") || []).forEach(function (o) {
@@ -405,44 +514,52 @@
       s.textContent = t("legend." + item[0]);
       legendEl.appendChild(s);
     });
-    hereBtn.textContent = t("buttons.here");
     clearBtn.textContent = t("buttons.clear");
     var L = core.LIMITS;
     limitsEl.textContent = fill(t("limits"), {
-      plan: hoursText(L.planHours), max: hoursText(L.suitMaxHours), kmh: L.flatKmh + " km/h", deg: L.maxSlopeDeg
+      plan: hoursText(L.planHours), max: hoursText(L.suitMaxHours), kmh: L.flatKmh + " km/h",
+      deg: L.maxSlopeDeg, risky: L.riskySlopeDeg
     });
     renderCard();
   }
 
   // ---- controls --------------------------------------------------------------------------
 
-  rangeBox.addEventListener("change", function () {
-    if (rangeBox.checked && stale() && !rb.isMoving()) computePlan();
+  // A click on the map or the ground while the Walk tab is open plans the walk.
+  map.onSelect(function (p) {
+    if (!grid || !panel.open || walk) return;
+    target = { nx: p.nx, ny: p.ny };
+    message = "";
+    if (stale()) { if (!rb.isMoving()) computePlan(); }
+    else updateRoute();
     map.redraw();
     renderCard();
   });
 
+  // Opening the Walk tab shows the range; leaving it hides the walk drawings.
+  panel.addEventListener("toggle", function () {
+    if (panel.open && grid && stale() && !rb.isMoving()) computePlan();
+    set3d();
+    map.redraw();
+    renderCard();
+  });
+
+  if (map.onHazardChange) {
+    map.onHazardChange(function () {
+      updateZones();
+      if (res && !walk) { computePlan(); map.redraw(); renderCard(); }
+    });
+  }
+
   siteSelect.addEventListener("change", function () {
     siteHours = Number(siteSelect.value) || DEFAULT_SITE_HOURS;
-    if (res) {
+    if (res && !walk) {
       buildRange();
       updateRoute();
       map.redraw();
     }
     message = "";
     renderCard();
-  });
-
-  hereBtn.addEventListener("click", function () {
-    var p = map.getSelected();
-    if (!p || walk) return;
-    target = { nx: p.nx, ny: p.ny };
-    message = "";
-    panel.open = true;
-    if (stale()) computePlan(); else updateRoute();
-    map.redraw();
-    renderCard();
-    panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
 
   startBtn.addEventListener("click", function () {
@@ -454,7 +571,7 @@
     target = null;
     route = null;
     message = "";
-    set3dRoute();
+    set3d();
     map.redraw();
     renderCard();
   });
@@ -470,7 +587,6 @@
   }
 
   function tick(dt) {
-    hereBtn.disabled = !grid || !!walk || rb.isMoving() || !map.getSelected();
     if (!grid) return;
     var p = rb.position();
 
@@ -495,22 +611,23 @@
 
     // Ridgeback stopped (or was put down) somewhere new: plan the walks from there.
     var replanned = false;
-    if ((rangeBox.checked || target) && p && !rb.isMoving() && (!res || cellOf(p) !== res.src)) {
+    if (panel.open && p && !rb.isMoving() && (!res || cellOf(p) !== res.src)) {
       computePlan();
       replanned = true;
     }
     // The card also depends on whether Ridgeback is moving, which can change
-    // while the plan stays out of date (range off, no spot picked yet).
+    // while the plan stays out of date.
     var s = stale(), moving = rb.isMoving();
     if (s !== wasStale || moving !== wasMoving || replanned) {
       wasStale = s;
       wasMoving = moving;
-      set3dRoute();
-      if (rangeBox.checked || target) map.redraw();
+      set3d();
+      if (panel.open || target) map.redraw();
       renderCard();
     }
   }
 
+  updateZones();
   import("./content.js").then(function (mod) {
     TEXT = mod.content.walk;
     applyText();

@@ -19,7 +19,6 @@
   var avoidNote = document.getElementById("route-avoid-note");
   var optionsEl = document.getElementById("route-options");
   var summary = document.getElementById("route-summary");
-  var sendBtn = document.getElementById("send-rover");
   var legendRoutes = document.getElementById("map-legend-routes");
 
   // ---- planner tuning (behaviour, not data) ---------------------------------
@@ -822,7 +821,6 @@
     document.getElementById("rb-tag").textContent = t("rover.tagline");
     document.getElementById("rb-reset").textContent = t("rover.buttons.reset");
     document.getElementById("rb-recharge").textContent = t("rover.buttons.recharge");
-    sendBtn.textContent = t("rover.buttons.plan");
     var battery = TEXT && TEXT.rover.stats.battery;
     if (battery) {
       document.getElementById("rb-battery-label").textContent = battery.label;
@@ -1313,12 +1311,12 @@
     setDestination(site ? { nx: site.nx, ny: site.ny, name: site.name } : null);
   });
 
-  // "Plan routes here": the clicked point (on the ground or the minimap)
-  // becomes the destination and its three routes appear. Nothing moves until
-  // the user picks a route and presses Start drive.
-  sendBtn.addEventListener("click", function () {
-    var p = map.getSelected();
-    if (!p) return;
+  // With the Plan or Drive tab open, a click on the ground or the minimap
+  // makes that spot the destination and its three routes appear, without
+  // changing tab. Nothing moves until the user presses Start drive.
+  var planPanel = document.getElementById("route-panel");
+  map.onSelect(function (p) {
+    if (!p || !(planPanel.open || panel.open)) return;
     var siteIdx = -1;
     sites.forEach(function (site, i) {
       if (site.nx === p.nx && site.ny === p.ny) siteIdx = i;
@@ -1328,7 +1326,6 @@
       rover.mode = "auto";
       input.up = input.down = input.left = input.right = false;
     }
-    document.getElementById("route-panel").open = true;
     if (siteIdx >= 0) {
       if (custom) custom.remove();
       toSelect.value = String(siteIdx);

@@ -17,7 +17,6 @@
   var fxCanvas = document.getElementById("map-fx");
   var fx = fxCanvas.getContext("2d");
   var mapLegend = document.getElementById("map-legend-hazards");
-  var sendRoverBtn = document.getElementById("send-rover");
   var layerList = document.getElementById("layer-list");
   var hazardList = document.getElementById("hazard-list");
   var siteLegend = document.getElementById("site-legend");
@@ -120,6 +119,7 @@
   var overlays = [];   // extra draw(ctx, W, H) callbacks, e.g. the route from rover.js
   var groundOverlays = []; // like overlays, but also painted on the 3D ground (walk.js range)
   var hazardListeners = [];
+  var selectListeners = []; // called with the picked spot on every map/ground click
   var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   function hazardFor(key) {
@@ -156,7 +156,9 @@
     hazardKeys: function () { return HAZARDS.map(function (hz) { return hz.key; }); },
     onHazardChange: function (cb) { hazardListeners.push(cb); },
     // The point last clicked on the map, or null.
-    getSelected: function () { return selected ? { nx: selected.nx, ny: selected.ny } : null; }
+    getSelected: function () { return selected ? { nx: selected.nx, ny: selected.ny } : null; },
+    // Each tab acts on a click itself (Plan/Drive: destination, Walk: walk).
+    onSelect: function (cb) { selectListeners.push(cb); }
   };
 
   // ---- sampling the data module into per-pixel fields ------------------------
@@ -806,7 +808,6 @@
 
   function showInfo() {
     infoBody.textContent = "";
-    sendRoverBtn.disabled = !selected;
     if (!data.ok) {
       var err = document.createElement("p");
       err.className = "error";
@@ -984,6 +985,8 @@
     if (site) selected = { nx: site.nx, ny: site.ny }; // snap to the site
     render();
     showInfo();
+    var spot = { nx: selected.nx, ny: selected.ny };
+    selectListeners.forEach(function (cb) { cb(spot); });
   }
 
   function showHover(p) {

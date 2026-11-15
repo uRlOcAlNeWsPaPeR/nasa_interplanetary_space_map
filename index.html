@@ -433,6 +433,9 @@
     #walker-2d[hidden] { display: none; }
     .walk-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 8px; color: var(--muted); font-size: 12px; }
     .walk-legend[hidden] { display: none; }
+    .walk-status { margin: 4px 0 8px; font-size: 13px; font-weight: 600; }
+    .walk-status:empty { display: none; }
+    .walk-avoids { margin-top: 0; }
     .walk-legend span::before {
       content: "";
       display: inline-block;
@@ -592,8 +595,6 @@
       <div class="tab-head" data-help="inspect"><h2>Inspect a spot</h2></div>
       <div id="info-body"></div>
       <div class="button-row">
-        <button id="send-rover" type="button" class="primary" disabled></button>
-        <button id="walk-here" type="button" disabled></button>
         <button id="clear-sample" type="button">Clear</button>
       </div>
     </details>
@@ -632,17 +633,17 @@
       <summary>Walk</summary>
       <div class="tab-head" data-help="walk"><h2>Walk on foot</h2></div>
       <p id="walk-intro" class="hint"></p>
-      <label class="check"><input id="walk-range" type="checkbox"> <span id="walk-range-label"></span></label>
-      <div id="walk-legend" class="walk-legend" hidden></div>
-      <label class="field"><span id="walk-site-label"></span><select id="walk-site"></select></label>
-      <p id="walk-status" class="hint" aria-live="polite"></p>
+      <div id="walk-legend" class="walk-legend"></div>
+      <p id="walk-status" class="walk-status" aria-live="polite"></p>
       <dl id="walk-stats"></dl>
+      <p id="walk-avoids" class="hint walk-avoids"></p>
       <div class="button-row">
         <button id="walk-start" type="button" class="primary" disabled></button>
         <button id="walk-clear" type="button" disabled></button>
       </div>
       <details class="more">
-        <summary>Walking limits</summary>
+        <summary id="walk-more-title"></summary>
+        <label class="field"><span id="walk-site-label"></span><select id="walk-site"></select></label>
         <p id="walk-limits" class="hint walk-limits"></p>
       </details>
     </details>
@@ -709,14 +710,9 @@
       panels.forEach(function (p) {
         p.addEventListener("toggle", function () { if (p.open) show(p.id); });
       });
-      // Picking a spot (minimap click, or the first pick anywhere): show Inspect.
-      var send = document.getElementById("send-rover");
-      new MutationObserver(function () {
-        if (!send.disabled) show("info-panel");
-      }).observe(send, { attributes: true, attributeFilter: ["disabled"] });
-      document.getElementById("map").addEventListener("click", function () {
-        setTimeout(function () { if (!send.disabled) show("info-panel"); }, 0);
-      });
+      // Clicking the map or the ground doesn't change tab: each tab acts on
+      // the click itself (Plan/Drive set the destination, Walk plans a walk,
+      // Inspect shows the readings).
       show("route-panel");
     })();
   </script>
