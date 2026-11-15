@@ -11,16 +11,22 @@ function makeGrid(w, h, opts) {
   const elevation = new Float32Array(n);
   const slope = new Float32Array(n);
   const sand = new Float32Array(n);
+  const boulders = opts.boulders ? new Uint8Array(n) : undefined;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       elevation[i] = opts.elev ? opts.elev(x, y) : 0;
       slope[i] = opts.slope ? opts.slope(x, y) : 0;
       sand[i] = opts.sand ? opts.sand(x, y) : 0;
+      if (boulders) boulders[i] = opts.boulders(x, y) ? 1 : 0;
     }
   }
-  return core.createGrid({ w, h, cellWm: CELL, cellHm: CELL, elevation, slope, sand });
+  return core.createGrid({ w, h, cellWm: CELL, cellHm: CELL, elevation, slope, sand, boulders });
 }
+
+// A 3-cell-wide band down the middle (x = 14..16), open at the top (y < 4).
+const band = (x, y) => x >= 14 && x <= 16 && y >= 4;
+const RISKY_GRADE = Math.tan(17 * Math.PI / 180); // between the 15 and 20 degree limits
 
 function near(actual, expected, tol, label) {
   assert.ok(Math.abs(actual - expected) <= tol, `${label || "value"}: expected ${expected} ± ${tol}, got ${actual}`);
@@ -124,4 +130,66 @@ test("cumulative hours along the path match the route's out and back times", () 
   assert.equal(out[0], 0);
   near(out[out.length - 1], r.outHours, 1e-9, "out");
   near(back[back.length - 1], r.backHours, 1e-9, "back");
+});
+
+test("risk limits match the design", () => {
+  assert.equal(core.LIMITS.riskySlopeDeg, 15);
+  assert.equal(core.LIMITS.sandRisk, 0.5);
+  assert.equal(core.LIMITS.riskFactor, 5);
+});
+
+test("the plan reports real walking hours, not the risk-weighted cost", () => {
+  const g = makeGrid(31, 21, { slope: (x, y) => (band(x, y) ? RISKY_GRADE : 0) });
+  const res = core.plan(g, 5, 10);
+  const r = core.routeTo(g, res, 25, 10, 1);
+  near(res.walk[10 * 31 + 25], r.outHours + r.backHours, 1e-9, "walk = out + back");
+  assert.ok(res.cost[10 * 31 + 25] >= res.walk[10 * 31 + 25] - 1e-9);
+});
+
+test("the safest route goes around 15-20 degree slopes when there is a way round", () => {
+  const g = makeGrid(31, 21, { slope: (x, y) => (band(x, y) ? RISKY_GRADE : 0) });
+  const res = core.plan(g, 5, 10);
+  const r = core.routeTo(g, res, 25, 10, 1);
+  assert.equal(r.reachable, true);
+  assert.equal(r.crosses.steep, 0);
+  assert.equal(r.direct.steep, true);
+  assert.equal(r.direct.tooSteep, false);
+  assert.ok(r.distanceKm > 2, "the way round is longer than the straight 2 km");
+});
+
+test("the safest route goes around mapped sand, boulders and hazard zones", () => {
+  const sandy = makeGrid(31, 21, { sand: (x, y) => (band(x, y) ? 0.8 : 0) });
+  let r = core.routeTo(sandy, core.plan(sandy, 5, 10), 25, 10, 1);
+  assert.equal(r.crosses.sand, 0);
+  assert.equal(r.direct.sand, true);
+
+  const rocky = makeGrid(31, 21, { boulders: band });
+  r = core.routeTo(rocky, core.plan(rocky, 5, 10), 25, 10, 1);
+  assert.equal(r.crosses.boulders, 0);
+  assert.equal(r.direct.boulders, true);
+
+  const zoned = makeGrid(31, 21);
+  const mask = new Uint8Array(31 * 21);
+  for (let y = 0; y < 21; y++) for (let x = 0; x < 31; x++) if (band(x, y)) mask[y * 31 + x] = 1;
+  core.setZones(zoned, mask);
+  r = core.routeTo(zoned, core.plan(zoned, 5, 10), 25, 10, 1);
+  assert.equal(r.crosses.zone, 0);
+  assert.equal(r.direct.zone, true);
+  core.setZones(zoned, null);
+  r = core.routeTo(zoned, core.plan(zoned, 5, 10), 25, 10, 1);
+  near(r.distanceKm, 2, 1e-9, "zones cleared: straight again");
+});
+
+test("with no way round, the route still crosses risky ground and says so", () => {
+  const g = makeGrid(31, 21, { slope: (x) => (x >= 14 && x <= 16 ? RISKY_GRADE : 0) });
+  const r = core.routeTo(g, core.plan(g, 5, 10), 25, 10, 1);
+  assert.equal(r.reachable, true);
+  near(r.crosses.steep, 300, 1e-6, "three 100 m cells of steep ground");
+});
+
+test("the straight line notices ground too steep to walk", () => {
+  const g = makeGrid(31, 21, { slope: (x, y) => (band(x, y) ? 0.5 : 0) });
+  const r = core.routeTo(g, core.plan(g, 5, 10), 25, 10, 1);
+  assert.equal(r.reachable, true);
+  assert.equal(r.direct.tooSteep, true);
 });

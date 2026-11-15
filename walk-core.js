@@ -25,8 +25,15 @@
     flatKmh: 2,          // walking speed on flat ground
     maxSlopeDeg: 20,     // steepest ground a suited astronaut walks on
     sandSlowdown: 0.3,   // walking on mapped sand is up to 30% slower (our estimate)
-    nearLimitHours: 1    // a walk within the plan's last hour "only just" fits
+    nearLimitHours: 1,   // a walk within the plan's last hour "only just" fits
+    riskySlopeDeg: 15,   // Apollo crews kept to slopes under 15 degrees
+    sandRisk: 0.5,       // ground at least half mapped sand counts as risky
+    riskFactor: 5        // entering a risky cell costs this many times its walking time
   };
+
+  // Kinds of risky ground (bit flags in grid.risk). The safest route goes
+  // around them when it can; ground over the 20 degree limit is never walked.
+  var RISK = { STEEP: 1, SAND: 2, BOULDERS: 4, ZONE: 8 };
 
   var TOBLER_FLAT = Math.exp(-3.5 * 0.05);
 
@@ -42,20 +49,33 @@
     return LIMITS.flatKmh * toblerFactor(grade) * (1 - LIMITS.sandSlowdown * clamp01(sand));
   }
 
-  // grid: { w, h, cellWm, cellHm, elevation (m), slope (grade), sand (0-1) },
-  // all fields row by row from the north-west corner.
+  // grid: { w, h, cellWm, cellHm, elevation (m), slope (grade), sand (0-1),
+  // boulders (optional 0/1 mask) }, all row by row from the north-west corner.
   function createGrid(o) {
     var n = o.w * o.h;
     var blocked = new Uint8Array(n);
+    var risk = new Uint8Array(n);
     var limit = maxGrade();
+    var risky = Math.tan(LIMITS.riskySlopeDeg * Math.PI / 180);
     for (var i = 0; i < n; i++) {
       var s = o.slope[i];
       if (!isFinite(o.elevation[i]) || !(s <= limit)) blocked[i] = 1;
+      if (s > risky) risk[i] |= RISK.STEEP;
+      if (o.sand[i] >= LIMITS.sandRisk) risk[i] |= RISK.SAND;
+      if (o.boulders && o.boulders[i]) risk[i] |= RISK.BOULDERS;
     }
     return {
       w: o.w, h: o.h, cellWm: o.cellWm, cellHm: o.cellHm,
-      elevation: o.elevation, slope: o.slope, sand: o.sand, blocked: blocked
+      elevation: o.elevation, slope: o.slope, sand: o.sand, blocked: blocked, risk: risk
     };
+  }
+
+  // Mark (or, with null, clear) the hazard zones the user highlights on the map.
+  function setZones(g, mask) {
+    for (var i = 0; i < g.risk.length; i++) {
+      if (mask && mask[i]) g.risk[i] |= RISK.ZONE;
+      else g.risk[i] &= ~RISK.ZONE;
+    }
   }
 
   function stepMetres(g, a, b) {
@@ -110,21 +130,21 @@
 
   var NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
-  // Quickest there-and-back walk from (sx, sy) to every grid point. The search
-  // minimises out + back time over one path walked both ways, and keeps the
-  // out and back times separately, so the shading, the drawn route and its
-  // times all agree.
+  // Safest there-and-back walk from (sx, sy) to every grid point. The search
+  // minimises out + back time over one path walked both ways, with risky
+  // ground costing riskFactor times as much, and keeps the real out and back
+  // times along that path, so the shading, the drawn route and its times agree.
   function plan(g, sx, sy) {
     var w = g.w, h = g.h, n = w * h;
     sx = Math.max(0, Math.min(w - 1, Math.round(sx)));
     sy = Math.max(0, Math.min(h - 1, Math.round(sy)));
     var src = sy * w + sx;
-    var total = new Float64Array(n).fill(Infinity);
+    var cost = new Float64Array(n).fill(Infinity);
     var out = new Float64Array(n).fill(Infinity);
     var back = new Float64Array(n).fill(Infinity);
     var prev = new Int32Array(n).fill(-1);
     var done = new Uint8Array(n);
-    total[src] = out[src] = back[src] = 0;
+    cost[src] = out[src] = back[src] = 0;
     var heap = new Heap();
     heap.push(0, src);
     while (heap.size()) {
@@ -140,17 +160,36 @@
         var dist = stepMetres(g, u, v);
         var tOut = edgeHours(g, u, v, dist);
         var tBack = edgeHours(g, v, u, dist);
-        var t = total[u] + tOut + tBack;
-        if (t < total[v]) {
-          total[v] = t;
+        var c = cost[u] + (tOut + tBack) * (g.risk[v] ? LIMITS.riskFactor : 1);
+        if (c < cost[v]) {
+          cost[v] = c;
           out[v] = out[u] + tOut;
           back[v] = back[u] + tBack;
           prev[v] = u;
-          heap.push(t, v);
+          heap.push(c, v);
         }
       }
     }
-    return { src: src, total: total, out: out, back: back, prev: prev };
+    var walk = new Float64Array(n);
+    for (var i = 0; i < n; i++) walk[i] = out[i] + back[i];
+    return { src: src, cost: cost, out: out, back: back, walk: walk, prev: prev };
+  }
+
+  // What the straight line from a to b would cross (sampled every half cell).
+  function directLine(g, a, b) {
+    var ax = a % g.w, ay = (a - ax) / g.w, bx = b % g.w, by = (b - bx) / g.w;
+    var steps = Math.max(1, Math.ceil(Math.max(Math.abs(bx - ax), Math.abs(by - ay)) * 2));
+    var d = { steep: false, sand: false, boulders: false, zone: false, tooSteep: false };
+    for (var k = 1; k <= steps; k++) {
+      var x = Math.round(ax + (bx - ax) * k / steps), y = Math.round(ay + (by - ay) * k / steps);
+      var i = y * g.w + x, r = g.risk[i];
+      if (g.blocked[i]) d.tooSteep = true;
+      else if (r & RISK.STEEP) d.steep = true;
+      if (r & RISK.SAND) d.sand = true;
+      if (r & RISK.BOULDERS) d.boulders = true;
+      if (r & RISK.ZONE) d.zone = true;
+    }
+    return d;
   }
 
   // 0 = out of reach, 1 = easy round trip, 2 = fits, but only just.
@@ -178,10 +217,12 @@
     var r = {
       reachable: false, reason: null, level: 0, path: [], distanceKm: 0,
       outHours: 0, backHours: 0, walkHours: 0, siteHours: siteHours,
-      totalHours: siteHours, climbM: 0, steepestDeg: 0, sandShare: 0
+      totalHours: siteHours, climbM: 0, steepestDeg: 0, sandShare: 0,
+      crosses: { steep: 0, sand: 0, boulders: 0, zone: 0 },
+      direct: { steep: false, sand: false, boulders: false, zone: false, tooSteep: false }
     };
     if (idx !== res.src && g.blocked[idx]) { r.reason = "steep"; return r; }
-    if (!isFinite(res.total[idx])) { r.reason = "cutOff"; return r; }
+    if (!isFinite(res.walk[idx])) { r.reason = "cutOff"; return r; }
 
     var path = [];
     for (var c = idx; c !== -1; c = c === res.src ? -1 : res.prev[c]) path.push(c);
@@ -191,18 +232,25 @@
     for (var i = 0; i < path.length; i++) {
       var p = path[i];
       if (i > 0) {
-        dist += stepMetres(g, path[i - 1], p);
+        var step = stepMetres(g, path[i - 1], p);
+        dist += step;
         var rise = g.elevation[p] - g.elevation[path[i - 1]];
         if (rise > 0) climb += rise;
+        var risk = g.risk[p];
+        if (risk & RISK.STEEP) r.crosses.steep += step;
+        if (risk & RISK.SAND) r.crosses.sand += step;
+        if (risk & RISK.BOULDERS) r.crosses.boulders += step;
+        if (risk & RISK.ZONE) r.crosses.zone += step;
       }
       if (i > 0 || path.length === 1) steep = Math.max(steep, g.slope[p]);
-      if (g.sand[p] >= 0.5) sandy++;
+      if (g.sand[p] >= LIMITS.sandRisk) sandy++;
     }
+    r.direct = directLine(g, res.src, idx);
     r.path = path;
     r.distanceKm = dist / 1000;
     r.outHours = res.out[idx];
     r.backHours = res.back[idx];
-    r.walkHours = res.total[idx];
+    r.walkHours = res.walk[idx];
     r.totalHours = r.walkHours + siteHours;
     r.climbM = climb;
     r.steepestDeg = Math.atan(steep) * 180 / Math.PI;
@@ -215,6 +263,8 @@
 
   var api = {
     LIMITS: LIMITS,
+    RISK: RISK,
+    setZones: setZones,
     maxGrade: maxGrade,
     toblerFactor: toblerFactor,
     walkKmh: walkKmh,
