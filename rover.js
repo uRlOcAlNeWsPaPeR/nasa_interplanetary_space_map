@@ -16,8 +16,6 @@
   var fromSelect = document.getElementById("route-from");
   var toSelect = document.getElementById("route-to");
   var routeClearBtn = document.getElementById("route-clear");
-  var avoidBox = document.getElementById("route-avoid");
-  var avoidNote = document.getElementById("route-avoid-note");
   var optionsEl = document.getElementById("route-options");
   var summary = document.getElementById("route-summary");
   var legendRoutes = document.getElementById("map-legend-routes");
@@ -202,8 +200,8 @@
   function buildCost(profile) {
     var t = getTerrain();
     var cost = new Float32Array(GRID_W * GRID_H);
-    var limS = avoidBox.checked ? map.hazardLimit("slope") : null;
-    var limD = avoidBox.checked ? map.hazardLimit("dustRisk") : null;
+    var limS = map.hazardLimit("slope");      // user limits: always off now (fixed limits)
+    var limD = map.hazardLimit("dustRisk");
     var thrS = threshold("slope"), thrD = threshold("dustRisk");
     for (var i = 0; i < cost.length; i++) {
       var s = t.slope[i], d = t.dust[i];
@@ -219,20 +217,25 @@
     return cost;
   }
 
-  // With "Stay within my limits" on: is the destination itself over the
-  // user's limits ("destination"), or does every route cross ground over them
-  // ("crossing")? Checked on the routes as drawn, sampled every ~120 m (the
-  // same check behind each card's hazard %). Driving out of a zone the rover
-  // starts in doesn't count. A route that crosses while another doesn't is
-  // swapped for the clean one, so no offered route breaks the limits.
+  // Ridgeback's fixed limits: no slope over MAX_SLOPE, no sand over DEEP_SAND.
+  // Routes already go round both when they can (IMPASSABLE); this says when
+  // they can't: "destination" if the destination itself is over them,
+  // "crossing" if every way there crosses them. Checked on the routes as
+  // drawn, every ~120 m. Driving out of where the rover starts doesn't count.
+  // A route that crosses while another doesn't is swapped for the clean one.
+  function overFixed(s) { return s.slope > MAX_SLOPE || s.dustRisk > DEEP_SAND; }
   function checkLimits() {
-    var limS = avoidBox.checked ? map.hazardLimit("slope") : null;
-    var limD = avoidBox.checked ? map.hazardLimit("dustRisk") : null;
-    if (limS === null && limD === null) return null;
-    var at = data.sampleTerrainAt(dest.nx, dest.ny);
-    if ((limS !== null && at.slope > limS) || (limD !== null && at.dustRisk > limD)) return "destination";
+    if (overFixed(data.sampleTerrainAt(dest.nx, dest.ny))) return "destination";
     function crosses(r) {
-      return r.metrics.stretches.some(function (st) { return st.from > 0; });
+      var total = r.cum[r.cum.length - 1];
+      var n = Math.max(2, Math.ceil(total / 0.004));
+      var leaving = true;
+      for (var i = 0; i < n; i++) {
+        var p = pointOn(r.path, r.cum, total * i / n);
+        if (!overFixed(data.sampleTerrainAt(p.nx, p.ny))) leaving = false;
+        else if (!leaving) return true;
+      }
+      return false;
     }
     var clean = routes.filter(function (r) { return !crosses(r); });
     if (!clean.length) return "crossing";
@@ -704,10 +707,6 @@
   function renderRoutes() {
     optionsEl.textContent = "";
     summary.textContent = "";
-    var anyLimit = map.hazardKeys().some(function (k) { return map.hazardLimit(k) !== null; });
-    avoidNote.textContent = anyLimit
-      ? ""
-      : "Set your limits in the Hazards tab (left).";
     if (!routes) {
       summary.appendChild(el("p", "empty", planMessage));
       return;
@@ -893,7 +892,6 @@
     document.getElementById("battery-alert-text").textContent = t("rover.batteryAlert.text");
     document.getElementById("battery-alert-reset").textContent = t("rover.batteryAlert.button");
     document.getElementById("route-notice-title").textContent = t("rover.noRoute.title");
-    document.getElementById("route-notice-limits").textContent = t("rover.noRoute.change");
     document.getElementById("route-notice-ok").textContent = t("rover.noRoute.ok");
     var battery = TEXT && TEXT.rover.stats.battery;
     if (battery) {
@@ -974,7 +972,7 @@
   function limitAhead(next) {
     var here = rover.sample;
     if (next.slope > MAX_SLOPE && next.slope > here.slope) return "steepSlope";
-    if (avoidBox.checked && !zoneOf(here) && zoneOf(next)) return "zone";
+    if (!zoneOf(here) && zoneOf(next)) return "zone"; // only if a hazard limit is ever set
     return null;
   }
 
@@ -1599,13 +1597,8 @@
     syncControls();
   }
 
-  avoidBox.addEventListener("change", function () {
-    notifyNoRoute = true;
-    replanKeepDriving();
-  });
-
-  // New limits change what counts as hazard ground, so routes are re-planned
-  // (and the user is told if no route stays within them).
+  // If hazard limits ever change, routes are re-planned (and the user told
+  // if no route stays within them).
   map.onHazardChange(function () {
     clearTimeout(planTimer);
     planTimer = setTimeout(function () {
@@ -1615,8 +1608,8 @@
     renderTelemetry();
   });
 
-  // "No safe route" notice: shown when the user's own action (a new
-  // destination or new limits) leaves no route within their limits.
+  // "No safe route" notice: shown when picking a destination leaves no route
+  // within Ridgeback's limits.
   var noRouteBox = document.getElementById("route-notice");
   function showNoRoute(text) {
     if (!noRouteBox || !noRouteBox.showModal || noRouteBox.open) return;
@@ -1625,10 +1618,6 @@
   }
   if (noRouteBox) {
     document.getElementById("route-notice-ok").addEventListener("click", function () { noRouteBox.close(); });
-    document.getElementById("route-notice-limits").addEventListener("click", function () {
-      noRouteBox.close();
-      if (map.openLimits) map.openLimits();
-    });
   }
 
   // ---- minimap marker ---------------------------------------------------------

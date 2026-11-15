@@ -18,7 +18,6 @@
   var fx = fxCanvas.getContext("2d");
   var mapLegend = document.getElementById("map-legend-hazards");
   var layerList = document.getElementById("layer-list");
-  var hazardList = document.getElementById("hazard-list");
   var siteLegend = document.getElementById("site-legend");
   var infoBody = document.getElementById("info-body");
   var hoverReadout = document.getElementById("hover-readout");
@@ -840,52 +839,11 @@
     hazardListeners.forEach(function (cb) { cb(); });
   }
 
-  // Hazard limits: one slider per hazard, off (all the way right) until the
-  // user sets it. Ground over a limit lights up, and routes go round it.
+  // Hazard limits are fixed now (Ridgeback's own, in rover.js), so there is
+  // nothing for the user to set: every user limit stays off.
   function buildHazardPanel() {
-    hazardList.textContent = "";
-    HAZARDS.forEach(function (hz) {
-      var key = hz.key;
-      limits[key] = 1;
-      var field = fieldFor(key);
-      var row = document.createElement("div");
-      row.className = "hazard-row";
-      row.style.setProperty("--hz", css(hz.color));
-      var head = document.createElement("div");
-      head.className = "hazard-head";
-      var name = document.createElement("span");
-      name.className = "hazard-name";
-      name.appendChild(makeSwatch(hz));
-      name.appendChild(document.createTextNode(field.label));
-      var value = document.createElement("span");
-      head.appendChild(name);
-      head.appendChild(value);
-      var slider = makeSlider(field.label + " limit");
-      slider.style.accentColor = css(hz.color);
-      function sync() {
-        limits[key] = slider.value / 100;
-        var on = limits[key] < 1;
-        row.classList.toggle("is-on", on);
-        value.textContent = on ? "above " + field.format(limits[key]) : "off";
-      }
-      slider.addEventListener("input", function () {
-        sync();
-        hazardsChanged();
-      });
-      sync();
-      row.appendChild(head);
-      row.appendChild(slider);
-      hazardList.appendChild(row);
-    });
+    HAZARDS.forEach(function (hz) { limits[hz.key] = 1; });
   }
-
-  // For the "No safe route" notice's button: show the Hazards tab and its sliders.
-  window.MapUI.openLimits = function () {
-    var tab = document.getElementById("tab-hazards");
-    if (tab) tab.click();
-    var first = hazardList.querySelector("input[type=range]");
-    if (first) first.focus();
-  };
 
   function buildSiteLegend() {
     siteLegend.textContent = "";

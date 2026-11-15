@@ -670,27 +670,19 @@
       </div>
     </section>
 
-    <!-- Map layers and hazards: two tabs in one always-visible card. -->
+    <!-- Map layers and the legend. (Hazard limits are fixed now: Ridgeback's own.) -->
     <section id="layer-panel" class="card">
-      <div class="tabs" role="tablist" aria-label="Map">
-        <button type="button" role="tab" id="tab-layers" aria-controls="layers-pane" aria-selected="true">Layers</button>
-        <button type="button" role="tab" id="tab-hazards" aria-controls="hazards-pane" aria-selected="false" tabindex="-1">Hazards</button>
-      </div>
-      <div id="layers-pane" role="tabpanel" aria-labelledby="tab-layers">
+      <div id="layers-pane">
         <div class="tab-head" data-help="layers"><h2>What the map shows</h2></div>
         <div id="layer-list"></div>
         <div class="button-row"><button id="reset-layers" type="button">Reset layers</button></div>
-        <div id="site-legend" class="section"></div>
-      </div>
-      <div id="hazards-pane" role="tabpanel" aria-labelledby="tab-hazards" hidden>
-        <div class="tab-head" data-help="hazards"><h2>Your limits</h2></div>
-        <div id="hazard-list"></div>
         <div class="section">
           <div id="map-legend">
             <div id="map-legend-hazards"></div>
             <div id="map-legend-routes"></div>
           </div>
         </div>
+        <div id="site-legend" class="section"></div>
       </div>
     </section>
 
@@ -729,7 +721,6 @@
     <h2 id="route-notice-title"></h2>
     <p id="route-notice-text"></p>
     <div class="button-row">
-      <button id="route-notice-limits" type="button"></button>
       <button id="route-notice-ok" type="button" class="primary"></button>
     </div>
   </dialog>
@@ -762,8 +753,6 @@
       <div class="button-row">
         <button id="route-clear" type="button" disabled></button>
       </div>
-      <label class="check"><input id="route-avoid" type="checkbox" checked> Stay within my limits</label>
-      <p id="route-avoid-note" class="hint"></p>
       <div id="route-options"></div>
       <div id="route-summary"></div>
     </details>
@@ -875,26 +864,6 @@
       this.setAttribute("aria-expanded", String(on));
     });
 
-    // Left card: Layers / Hazards tabs.
-    (function () {
-      var tabs = [document.getElementById("tab-layers"), document.getElementById("tab-hazards")];
-      function show(i) {
-        tabs.forEach(function (t, j) {
-          t.setAttribute("aria-selected", String(i === j));
-          t.tabIndex = i === j ? 0 : -1;
-          document.getElementById(t.getAttribute("aria-controls")).hidden = i !== j;
-        });
-      }
-      tabs.forEach(function (t, i) {
-        t.addEventListener("click", function () { show(i); });
-        t.addEventListener("keydown", function (e) {
-          if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-          var j = (i + 1) % 2;
-          tabs[j].focus();
-          show(j);
-        });
-      });
-    })();
 
     // Right-hand tabs: exactly one panel open at a time. Other scripts open a
     // panel by setting .open (e.g. "Plan routes here"), and the tabs follow.

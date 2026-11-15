@@ -37,12 +37,11 @@ export const content = {
       },
     },
 
-    // When no route stays within the user's limits (rover.js).
+    // When no route stays within Ridgeback's fixed limits (rover.js).
     noRoute: {
       title: "No safe route",
-      destination: "Your destination is on ground over your limits, so no route can stay within them. Pick another spot or change your limits.",
-      crossing: "Every way there crosses ground over your limits, even the long ways round. Pick another destination or change your limits.",
-      change: "Change my limits",
+      destination: "Your destination is in deep sand (over 80%) or on a slope too steep for Ridgeback (over 60%), so no route can reach it safely. Pick another spot.",
+      crossing: "Every way there crosses deep sand or slopes too steep for Ridgeback, even the long ways round. Pick another destination.",
       ok: "OK",
     },
 
@@ -294,7 +293,7 @@ export const content = {
     ],
     plan: [
       { name: "Start site / Destination", text: "Pick where Ridgeback sets off and where it should go. Or right-click a spot on the map or the ground, double-click it and choose Drive here." },
-      { name: "Stay within my limits", text: "Routes go the long way round any ground over your limits (set in the Hazards tab, left). If no way there stays within them, you're told." },
+      { name: "Ridgeback's limits", text: "Routes go the long way round deep sand (over 80%) and slopes too steep to climb (over 60%). If no way there avoids them, you're told." },
       { name: "Clear", text: "Removes the destination, its routes and the marker on the map." },
       { name: "Route cards", text: "Three options: Fastest, Safest and Balanced. Pick one, then press Start drive in the Drive tab." },
     ],
@@ -323,11 +322,7 @@ export const content = {
       { name: "Layer cards", text: "Tick a layer to paint it on the map and the 3D ground. The coloured strip shows its colour scale: dark is low, bright is high." },
       { name: "Slider", text: "Fades a layer in or out so you can see the layers underneath." },
       { name: "Reset layers", text: "Back to just the satellite image." },
-    ],
-    hazards: [
-      { name: "Sliders", text: "Off until you set them. Drag a slider left to set the most you'll drive through; all the way right turns it off. Routes go the long way round anything over your limits." },
-      { name: "Slope", text: "Routes go round ground steeper than your limit. Ridgeback can't climb anything over 60%, limit or not." },
-      { name: "Mapped sand", text: "Always shown in yellow on the map, darker where it's deeper. Over 80% is deep sand: Ridgeback gets stuck and has to drive out the way it came. The big number at the top counts the metres to it." },
+      { name: "Mapped sand", text: "Always shown in yellow, darker where it's deeper. Over 80% is deep sand: Ridgeback gets stuck and has to drive out the way it came. The big number at the top counts the metres to it." },
     ],
     map: [
       { name: "+ / −", text: "Zoom the map in or out. Drag to move around when zoomed." },
