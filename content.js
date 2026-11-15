@@ -50,7 +50,7 @@ export const content = {
     // fixed level where Ridgeback gets stuck).
     deepSand: {
       ahead: "to deep sand ahead",
-      inIt: "In deep sand: drive out the way you came",
+      inIt: "In deep sand: reverse out the way you came",
     },
 
     // Notices when the battery drops to 20%, 10% and 5% (rover.js).
@@ -79,7 +79,7 @@ export const content = {
         caution: "Mapped sand ahead",
         danger: "Deep sand ahead: Ridgeback will get stuck",
         hereCaution: "On mapped sand",
-        hereDanger: "Dug into deep sand: drive out the way you came",
+        hereDanger: "Dug into deep sand: reverse out the way you came",
         key: "Yellow: mapped sand · the darker, the deeper",
       },
     },
@@ -87,7 +87,7 @@ export const content = {
     limits: {
       title: "What Ridgeback can't do",
       steepSlope: "Can't climb very steep slopes. It would tip over.",
-      deepSand: "Gets stuck in deep sand, and can only get out the way it came in (forward or in reverse). Avoid dark, loose-looking patches.",
+      deepSand: "Gets stuck in deep sand: it can't turn or drive forward there, only reverse straight back out the way it came. Avoid the darkest yellow patches.",
       extremeCold: "Battery drains much faster in extreme cold. Real rover cells hold about a quarter less charge at −20 °C.",
       dustStorm: "Solar panels barely work during a dust storm.",
     },
@@ -98,7 +98,8 @@ export const content = {
       charging: "Recharging in sunlight. Waiting is safe, but time is limited.",
       lowBattery: "Battery below 40%, NASA's safe floor. Find a sunny, flat spot or head for the nearest safe point.",
       critical: "Battery critical. Ridgeback will stop soon.",
-      stuck: "Ridgeback is stuck. Turn toward the way you came in and drive out, then choose a safer route.",
+      stuck: "Ridgeback is stuck. Reverse straight back out the way you came, then choose a safer route.",
+      sandBehind: "Deep sand behind. Ridgeback won't back into it: once in, it couldn't drive forward out again.",
       arrived: "You made it. Ridgeback has reached the destination.",
       failed: "Ridgeback has run out of power. The mission is over.",
     },
@@ -121,6 +122,9 @@ export const content = {
       recharge: "Wait and recharge",
       reset: "Start over",
     },
+
+    // First choice in the route's Start list: plan from wherever Ridgeback is now.
+    currentPosition: "Current position",
   },
 
   // How NASA's real Mars rovers are powered. Each fact links to its source.
@@ -330,7 +334,7 @@ export const content = {
       { name: "Layer cards", text: "Tick a layer to paint it on the map and the 3D ground. The coloured strip shows its colour scale: dark is low, bright is high." },
       { name: "Slider", text: "Fades a layer in or out so you can see the layers underneath." },
       { name: "Reset layers", text: "Back to just the satellite image." },
-      { name: "Mapped sand", text: "Always shown in yellow, darker where it's deeper. Over 80% is deep sand: Ridgeback gets stuck and has to drive out the way it came. The big number at the top counts the metres to it." },
+      { name: "Mapped sand", text: "Always shown in yellow, darker where it's deeper. Over 80% is deep sand: Ridgeback gets stuck and can only reverse out the way it came. The big number at the top counts the metres to it." },
     ],
     map: [
       { name: "+ / −", text: "Zoom the map in or out. Drag to move around when zoomed." },

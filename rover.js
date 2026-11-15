@@ -533,7 +533,7 @@
     playing: false,
     arrived: false,
     sample: null,    // terrain under the rover
-    blocked: null,   // limit that stopped the rover: "steepSlope" | "deepSand" | "zone" | "edge"
+    blocked: null,   // limit that stopped the rover: "steepSlope" | "deepSand" | "sandBehind" | "zone" | "edge"
     stuck: false,    // dug into deep sand
     battery: 100,
     dead: false,     // battery ran out
@@ -552,6 +552,8 @@
   var scene3d = null;
   var locked = false;     // someone is outside on foot (walk.js): Ridgeback stays parked
   var notifyNoRoute = false; // the next plan() came from a user action: say so if no route fits
+  var currentOpt = null;    // the Start list's "Current position" option
+  var startSiteIdx = null;   // last start site picked (Start over goes back there)
   var sandExit = null;    // last firm ground Ridgeback stood on: once dug into deep sand, it can only back out toward here
 
   function selectedRoute() {
@@ -649,7 +651,18 @@
     rover.blocked = null;
     sandExit = null;
     refreshSample();
+    faceOutOfSand();
     if (scene3d) scene3d.resetTrail();
+  }
+
+  // Put down in deep sand (a start site there, or Start over): face away from
+  // the nearest firm ground, so reversing (all it can do there) leads out.
+  function faceOutOfSand() {
+    if (!rover.sample || rover.sample.dustRisk <= DEEP_SAND) return;
+    var exit = nearestFirmGround(rover.pos);
+    if (!exit) return;
+    rover.heading = Math.atan2((exit.ny - rover.pos.ny) * ASPECT, exit.nx - rover.pos.nx) + Math.PI;
+    sandExit = exit;
   }
 
   // A new destination shows its three routes and waits: driving only starts
@@ -659,6 +672,7 @@
     rover.playing = false;
     rover.speed = 0;
     notifyNoRoute = true;
+    if (d) fromSelect.value = "current"; // routes start from where Ridgeback is
     plan();
     syncControls();
     renderTelemetry();
@@ -888,6 +902,7 @@
     document.getElementById("rb-reset").textContent = t("rover.buttons.reset");
     document.getElementById("rb-recharge").textContent = t("rover.buttons.recharge");
     routeClearBtn.textContent = t("rover.buttons.clear");
+    currentOpt.textContent = t("rover.currentPosition");
     document.getElementById("battery-alert-title").textContent = t("rover.batteryAlert.title");
     document.getElementById("battery-alert-text").textContent = t("rover.batteryAlert.text");
     document.getElementById("battery-alert-reset").textContent = t("rover.batteryAlert.button");
@@ -1016,6 +1031,13 @@
     var mul = speedMul();
     rover.stuck = rover.sample.dustRisk > DEEP_SAND;
     if (rover.stuck && !sandExit) sandExit = nearestFirmGround(rover.pos); // started in deep sand: no tracks to follow
+    // Dug into deep sand: the wheels can't pull forward or turn it; only
+    // reversing works (straight back out the way it came).
+    var spinning = rover.stuck && !rover.dead && (input.up || ((input.left || input.right) && !input.down));
+    if (rover.stuck) {
+      if (throttle > 0) throttle = 0;
+      steer = 0;
+    }
     var factor = speedFactor(rover.sample) * (rover.stuck ? STUCK_FACTOR : throttle < 0 ? REVERSE_FACTOR : 1);
     var target = throttle * DRIVE_SPEED * mul * factor;
     // Braking (letting go) is quicker than accelerating.
@@ -1025,6 +1047,7 @@
     var turnScale = 0.35 + 0.65 * Math.min(1, Math.abs(rover.speed) / (DRIVE_SPEED * 0.5));
     rover.heading += steer * TURN_RATE * Math.min(2, mul) * turnScale * dt * (rover.speed < 0 ? -1 : 1);
     if (throttle || steer) rover.blocked = null; // set again below if the way ahead is blocked
+    if (spinning) rover.blocked = "deepSand";
     if (throttle) everMoved = true;
     if (!rover.speed) return;
 
@@ -1036,9 +1059,16 @@
       return;
     }
     var ahead = data.sampleTerrainAt(nx, ny);
-    // Dug in: driving (forward or in reverse) only works back out, toward the
-    // firm ground it came from or onto shallower sand, like real rovers
-    // backing out along their tracks. It can't go deeper in or across the sand.
+    // It won't back into deep sand: once in, there'd be no way out (it can
+    // only reverse there, never drive forward).
+    if (!rover.stuck && rover.speed < 0 && ahead.dustRisk > DEEP_SAND) {
+      rover.blocked = "sandBehind";
+      rover.speed = 0;
+      return;
+    }
+    // Dug in: reversing only works back out, toward the firm ground it came
+    // from or onto shallower sand, like real rovers backing out along their
+    // tracks. It can't go deeper in or across the sand.
     if (rover.stuck && sandExit &&
         mapDist({ nx: nx, ny: ny }, sandExit) >= mapDist(rover.pos, sandExit) &&
         !(ahead.dustRisk < rover.sample.dustRisk)) {
@@ -1114,6 +1144,9 @@
     }
     refreshSample();
     if (rover.sample.dustRisk <= DEEP_SAND) sandExit = { nx: rover.pos.nx, ny: rover.pos.ny };
+    // Routes start from wherever Ridgeback is: once it leaves the start site,
+    // the Start list says so.
+    if (rover.speed && fromSelect.value !== "current") fromSelect.value = "current";
     stepBattery(dt, prevElevation);
   }
 
@@ -1164,6 +1197,7 @@
   // content.js status key for the rover's situation, most serious first.
   function statusKey() {
     if (rover.dead) return "failed";
+    if (rover.blocked === "sandBehind") return "sandBehind";
     if (rover.blocked === "deepSand" || rover.blocked === "steepSlope") return "stuck";
     if (rover.battery < CRITICAL_BATTERY) return "critical";
     if (rover.battery < LOW_BATTERY) return "lowBattery";
@@ -1177,7 +1211,7 @@
   function limitKey() {
     var s = rover.sample;
     if (rover.blocked === "steepSlope") return "steepSlope";
-    if (rover.blocked === "deepSand" || rover.stuck) return "deepSand";
+    if (rover.blocked === "deepSand" || rover.blocked === "sandBehind" || rover.stuck) return "deepSand";
     if (rover.drain < 0 && s.nightIR < COLD_GROUND) return "extremeCold";
     return null;
   }
@@ -1420,7 +1454,7 @@
   }
 
   var BLOCK_WORDS = {
-    steepSlope: "too steep ahead", deepSand: "dug into deep sand",
+    steepSlope: "too steep ahead", deepSand: "dug into deep sand", sandBehind: "deep sand behind",
     zone: "hazard zone ahead", edge: "edge of the map"
   };
 
@@ -1497,9 +1531,10 @@
     rover.dead = false;
     rover.stuck = false;
     everMoved = false;
-    var site = sites[fromSelect.value];
-    if (site) teleport(site);
+    var site = sites[startSiteIdx];
+    if (site) fromSelect.value = String(startSiteIdx);
     rover.heading = 0;
+    if (site) teleport(site); // (faces out of deep sand if the site is in it)
     origin = null;
     setMode("auto");
     plan();
@@ -1574,8 +1609,14 @@
   // ---- route panel events -------------------------------------------------------
 
   fromSelect.addEventListener("change", function () {
+    if (fromSelect.value === "current") { // plan from wherever Ridgeback is now
+      origin = null;
+      plan();
+      return;
+    }
     var site = sites[fromSelect.value];
     if (!site) return;
+    startSiteIdx = Number(fromSelect.value);
     teleport(site);
     origin = null;
     plan();
@@ -2202,6 +2243,14 @@
   };
 
   fillSelect(fromSelect, firstOfType("landing", 0), "");
+  // "Current position": routes start from wherever Ridgeback is. Picking a
+  // destination switches Start to it; Start over goes back to the last site.
+  currentOpt = document.createElement("option");
+  currentOpt.value = "current";
+  currentOpt.textContent = "Current position"; // re-worded from content.js once it loads
+  fromSelect.insertBefore(currentOpt, fromSelect.firstChild);
+  fromSelect.value = String(firstOfType("landing", 0));
+  startSiteIdx = Number(fromSelect.value);
   fillSelect(toSelect, -1, "None");
   buildRouteLegend();
   map.addOverlay(drawRoutes);
