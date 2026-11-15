@@ -34,6 +34,10 @@
   // Kinds of risky ground (bit flags in grid.risk). The safest route goes
   // around them when it can; ground over the 20 degree limit is never walked.
   var RISK = { STEEP: 1, SAND: 2, BOULDERS: 4, ZONE: 8 };
+  // How many kinds of risk a cell has (index: its flags). Each kind adds
+  // (riskFactor - 1) to the cost multiplier, so steep ground inside a hazard
+  // zone is worse than the zone alone.
+  var RISK_COUNT = [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4];
 
   var TOBLER_FLAT = Math.exp(-3.5 * 0.05);
 
@@ -160,7 +164,7 @@
         var dist = stepMetres(g, u, v);
         var tOut = edgeHours(g, u, v, dist);
         var tBack = edgeHours(g, v, u, dist);
-        var c = cost[u] + (tOut + tBack) * (g.risk[v] ? LIMITS.riskFactor : 1);
+        var c = cost[u] + (tOut + tBack) * (1 + (LIMITS.riskFactor - 1) * RISK_COUNT[g.risk[v]]);
         if (c < cost[v]) {
           cost[v] = c;
           out[v] = out[u] + tOut;

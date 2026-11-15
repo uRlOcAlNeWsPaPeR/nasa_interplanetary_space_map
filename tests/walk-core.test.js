@@ -193,3 +193,14 @@ test("the straight line notices ground too steep to walk", () => {
   assert.equal(r.reachable, true);
   assert.equal(r.direct.tooSteep, true);
 });
+
+test("ground with two kinds of risk costs more than ground with one", () => {
+  // A hazard zone across x = 12..18; inside it, steep ground at x = 14..16 except near the top.
+  const g = makeGrid(31, 21, { slope: (x, y) => (x >= 14 && x <= 16 && y >= 4 ? RISKY_GRADE : 0) });
+  const mask = new Uint8Array(31 * 21);
+  for (let y = 0; y < 21; y++) for (let x = 12; x <= 18; x++) mask[y * 31 + x] = 1;
+  core.setZones(g, mask);
+  const r = core.routeTo(g, core.plan(g, 5, 5), 25, 5, 1);
+  assert.equal(r.crosses.steep, 0, "goes over the zone-only ground, not the steep part");
+  assert.ok(r.crosses.zone > 0);
+});
