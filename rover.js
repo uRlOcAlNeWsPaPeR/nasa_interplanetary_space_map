@@ -2051,25 +2051,46 @@
 
     // ---- chase camera (Ridgeback's) -------------------------------------------
     //
-    // Starts as a chase camera behind the rover. Drag to move around the map:
-    // left-drag pans across it, right-drag (or Shift-drag) turns and tilts,
-    // scroll zooms. The view stays where you leave it; Chase cam goes back
-    // behind the rover.
+    // Three camera modes (switch in the Drive tab):
+    // - Third person (default): follows behind the rover. Drag to swing round
+    //   it (it keeps following), scroll to zoom.
+    // - First person: from the rover's deck, looking where it's heading. Drag
+    //   to look around.
+    // - Fixed: stays put while the rover drives on. Left-drag pans across the
+    //   map, right-drag (or Shift-drag) turns and tilts, scroll zooms.
 
-    var cam = { off: 0, p: 0.38, d: 13, h: 0, free: false, yaw: 0, target: null };
+    var cam = { mode: "third", off: 0, p: 0.38, d: 13, h: 0, yaw: 0, target: null, lookYaw: 0, lookPitch: -0.08 };
     var drag = null;
     var CAM_MIN = 5, CAM_MAX = 140;
     var PAN_SPEED = 0.0022;   // world units per pixel dragged, per unit of zoom distance
     var DRAG_START_PX = 3;    // ignore tiny jitters (a right-click still places a point)
+    var EYE_HEIGHT = 1.9;     // first person: eye above the rover's wheels
+    var EYE_FORWARD = 0.6;
+    var camButtons = {
+      fixed: document.getElementById("cam-fixed"),
+      first: document.getElementById("cam-first"),
+      third: document.getElementById("cam-third")
+    };
 
-    // Leave the chase view, keeping exactly what's on screen.
-    function freeCam() {
-      if (cam.free) return;
-      cam.free = true;
-      cam.yaw = cam.h + Math.PI + cam.off;
-      var c0 = rover.pos ? api.surfacePoint(rover.pos.nx, rover.pos.ny, 0) : new T.Vector3();
-      cam.target = { x: c0.x, z: c0.z };
+    function setCamMode(mode) {
+      if (mode === "fixed" && cam.mode !== "fixed") {
+        // Freeze the view where it is (from first person: just behind the rover).
+        var c0 = rover.pos ? api.surfacePoint(rover.pos.nx, rover.pos.ny, 0) : new T.Vector3();
+        cam.yaw = cam.h + Math.PI + (cam.mode === "third" ? cam.off : 0);
+        if (cam.mode !== "third") { cam.p = 0.38; cam.d = 13; }
+        cam.target = { x: c0.x, z: c0.z };
+      }
+      if (mode === "third" && cam.mode !== "third") { cam.off = 0; cam.p = 0.38; cam.d = 13; }
+      if (mode === "first") { cam.lookYaw = 0; cam.lookPitch = -0.08; }
+      cam.mode = mode;
+      Object.keys(camButtons).forEach(function (k) {
+        if (camButtons[k]) camButtons[k].setAttribute("aria-pressed", String(k === mode));
+      });
     }
+    Object.keys(camButtons).forEach(function (k) {
+      if (camButtons[k]) camButtons[k].addEventListener("click", function () { setCamMode(k); });
+    });
+
     api.dom.addEventListener("pointerdown", function (e) {
       drag = { x: e.clientX, y: e.clientY, turn: e.button === 2 || e.shiftKey, moved: false };
       try { api.dom.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
@@ -2079,8 +2100,13 @@
       var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_START_PX) return;
       drag.moved = true;
-      freeCam();
-      if (drag.turn) {
+      if (cam.mode === "third") {
+        cam.off -= dx * 0.008;
+        cam.p = Math.min(1.45, Math.max(0.08, cam.p + dy * 0.006));
+      } else if (cam.mode === "first") {
+        cam.lookYaw -= dx * 0.005;
+        cam.lookPitch = Math.min(0.5, Math.max(-0.7, cam.lookPitch - dy * 0.004));
+      } else if (drag.turn) {
         cam.yaw -= dx * 0.008;
         cam.p = Math.min(1.45, Math.max(0.08, cam.p + dy * 0.006));
       } else {
@@ -2098,17 +2124,9 @@
       api.dom.addEventListener(n, function () { drag = null; });
     });
     api.dom.addEventListener("wheel", function (e) {
-      cam.d = Math.min(CAM_MAX, Math.max(CAM_MIN, cam.d * Math.exp(e.deltaY * 0.0012)));
+      if (cam.mode !== "first") cam.d = Math.min(CAM_MAX, Math.max(CAM_MIN, cam.d * Math.exp(e.deltaY * 0.0012)));
       e.preventDefault();
     }, { passive: false });
-    document.getElementById("cam-reset").addEventListener("click", function () {
-      cam.free = false; cam.off = 0; cam.p = 0.38; cam.d = 13;
-    });
-    document.getElementById("cam-overview").addEventListener("click", function () {
-      cam.free = false;
-      freeCam(); // high above the rover, then free to drag around
-      cam.p = 1.2; cam.d = CAM_MAX;
-    });
 
     function angleDiff(a, b) {
       var d = (a - b) % (Math.PI * 2);
@@ -2212,12 +2230,21 @@
       api.sun.position.set(c.x + 40, c.y + 60, c.z + 25);
       api.sun.target.position.copy(rover3d.position);
 
-      // Chase camera eases behind the rover's heading; once dragged, the view
-      // stays where the user left it. Always kept above the ground.
+      // Camera (see the three modes above). The heading is eased so turns
+      // don't jerk the view; the camera always stays above the ground.
       var h = Math.atan2(fwd.x, fwd.z);
       cam.h += angleDiff(h, cam.h) * Math.min(1, dt * 3);
+      if (cam.mode === "first") {
+        rover3d.visible = false; // the camera sits on the deck
+        var eye = new T.Vector3(c.x + fwd.x * EYE_FORWARD, rover3d.position.y + EYE_HEIGHT, c.z + fwd.z * EYE_FORWARD);
+        eye.y = Math.max(eye.y, surfaceAt(eye.x, eye.z).y + 0.8);
+        var ly = cam.h + cam.lookYaw, lp = cam.lookPitch;
+        api.camera.position.copy(eye);
+        api.camera.lookAt(eye.x + Math.sin(ly) * Math.cos(lp) * 10, eye.y + Math.sin(lp) * 10, eye.z + Math.cos(ly) * Math.cos(lp) * 10);
+        return;
+      }
       var tx, ty, tz, a;
-      if (cam.free) {
+      if (cam.mode === "fixed") {
         tx = cam.target.x; tz = cam.target.z; ty = surfaceAt(tx, tz).y; a = cam.yaw;
       } else {
         tx = c.x; tz = c.z; ty = rover3d.position.y; a = cam.h + Math.PI + cam.off;

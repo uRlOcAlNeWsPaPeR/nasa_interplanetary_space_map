@@ -498,6 +498,8 @@
     .rover-row { display: flex; align-items: center; gap: 6px; margin: 10px 0; }
     .rover-row button { flex: 1; white-space: nowrap; padding: 6px 6px; }
     .rover-row select { width: auto; }
+    .rover-row .cam-modes { flex: 1; min-width: 0; }
+    .rover-row .cam-modes button { padding: 6px 4px; font-size: 12px; }
 
     /* ---- minimap ---- */
     #minimap {
@@ -788,8 +790,11 @@
       </div>
       <p class="manual-only hint">W A S D / arrow keys, or hold the pad. Press Auto to plan a route from here.</p>
       <div class="rover-row" data-help="view">
-        <button id="cam-reset" type="button">Chase cam</button>
-        <button id="cam-overview" type="button">Overview</button>
+        <div class="toggle cam-modes" role="group" aria-label="Camera view">
+          <button id="cam-fixed" type="button" aria-pressed="false">Fixed</button>
+          <button id="cam-first" type="button" aria-pressed="false">1st person</button>
+          <button id="cam-third" type="button" aria-pressed="true">3rd person</button>
+        </div>
         <select id="rover-speed" aria-label="Simulation speed">
           <option value="0.5">0.5×</option>
           <option value="1" selected>1×</option>

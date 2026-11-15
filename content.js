@@ -327,9 +327,9 @@ export const content = {
       { name: "Slider", text: "Jump to any point along the route." },
     ],
     view: [
-      { name: "Drag the view", text: "Left-drag moves across the map, right-drag (or Shift-drag) turns and tilts, scroll zooms. The view stays where you leave it." },
-      { name: "Chase cam", text: "Camera goes back behind Ridgeback and follows it." },
-      { name: "Overview", text: "Camera pulls up high over Ridgeback to show the whole area." },
+      { name: "3rd person", text: "Camera follows behind Ridgeback. Drag to swing round it, scroll to zoom." },
+      { name: "1st person", text: "See from Ridgeback's deck, looking where it's heading. Drag to look around." },
+      { name: "Fixed", text: "Camera stays put while Ridgeback drives on. Left-drag moves across the map, right-drag (or Shift-drag) turns and tilts, scroll zooms." },
       { name: "Speed (1×)", text: "Runs the simulation faster or slower. The battery drains at the same pace." },
     ],
     inspect: [
