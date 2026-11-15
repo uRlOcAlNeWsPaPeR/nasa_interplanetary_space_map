@@ -15,6 +15,7 @@
   var canvas = document.getElementById("map");
   var fromSelect = document.getElementById("route-from");
   var toSelect = document.getElementById("route-to");
+  var routeClearBtn = document.getElementById("route-clear");
   var avoidBox = document.getElementById("route-avoid");
   var avoidNote = document.getElementById("route-avoid-note");
   var optionsEl = document.getElementById("route-options");
@@ -837,6 +838,7 @@
     document.getElementById("rb-tag").textContent = t("rover.tagline");
     document.getElementById("rb-reset").textContent = t("rover.buttons.reset");
     document.getElementById("rb-recharge").textContent = t("rover.buttons.recharge");
+    routeClearBtn.textContent = t("rover.buttons.clear");
     var battery = TEXT && TEXT.rover.stats.battery;
     if (battery) {
       document.getElementById("rb-battery-label").textContent = battery.label;
@@ -1086,6 +1088,7 @@
     modeAutoBtn.setAttribute("aria-pressed", String(auto));
     modeManualBtn.setAttribute("aria-pressed", String(!auto));
     playBtn.disabled = !has || rover.dead || locked;
+    routeClearBtn.disabled = !dest;
     restartBtn.disabled = !has || locked;
     progressInput.disabled = !has || !auto || locked;
     modeAutoBtn.disabled = modeManualBtn.disabled = locked;
@@ -1419,6 +1422,14 @@
     var custom = toSelect.querySelector('option[value="custom"]');
     if (custom && toSelect.value !== "custom") custom.remove();
     setDestination(site ? { nx: site.nx, ny: site.ny, name: site.name } : null);
+  });
+
+  // Clear: no destination, no routes, and the clicked spot's marker goes too.
+  routeClearBtn.addEventListener("click", function () {
+    toSelect.value = "";
+    toSelect.dispatchEvent(new Event("change"));
+    var clearSpot = document.getElementById("clear-sample");
+    if (clearSpot) clearSpot.click();
   });
 
   // With the Plan or Drive tab open, a click on the ground or the minimap

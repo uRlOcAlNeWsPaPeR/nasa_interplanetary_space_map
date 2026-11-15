@@ -83,6 +83,7 @@ export const content = {
     buttons: {
       go: "Drive here",
       plan: "Plan routes here",
+      clear: "Clear",
       start: "Start drive",
       again: "Drive it again",
       stop: "Stop",
@@ -261,6 +262,7 @@ export const content = {
     plan: [
       { name: "Start site / Destination", text: "Pick where Ridgeback sets off and where it should go. Or click a spot on the map or the ground while this tab is open." },
       { name: "Avoid hazard zones", text: "Keeps routes out of the areas you highlight under Map layers & hazards." },
+      { name: "Clear", text: "Removes the destination, its routes and the marker on the map." },
       { name: "Route cards", text: "Three options: Fastest, Safest and Balanced. Pick one, then press Start drive in the Drive tab." },
     ],
     drive: [
