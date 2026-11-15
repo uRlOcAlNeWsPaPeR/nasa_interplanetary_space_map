@@ -343,6 +343,25 @@
       pointer-events: none;
     }
     #risk-hud[hidden] { display: none; }
+    /* Limits popup and the no-route notice. */
+    .app-dialog {
+      max-width: 380px;
+      width: calc(100% - 32px);
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px 20px;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, .35);
+    }
+    .app-dialog::backdrop { background: rgba(5, 8, 12, .55); }
+    .app-dialog h2 { margin: 0 0 8px; font-size: 17px; color: var(--text); text-transform: none; letter-spacing: 0; }
+    .app-dialog > p { margin: 0 0 12px; font-size: 13px; line-height: 1.45; }
+    .app-dialog .button-row { margin-top: 14px; justify-content: flex-end; }
+    .limit-field { margin: 0 0 14px; }
+    .limit-field input[type=range] { width: 100%; }
+    .limit-field .hint { margin: 2px 0 0; }
+    .choice-delete { width: 100%; margin-top: 8px; color: var(--bad); }
     /* Walk or Drive popup next to the double-clicked point (ui.js). */
     #choice-popup {
       position: fixed;
@@ -621,7 +640,7 @@
       <div id="layer-list"></div>
       <div class="button-row"><button id="reset-layers" type="button">Reset layers</button></div>
       <div class="section">
-        <h2>Highlight hazards</h2>
+        <h2>Your limits</h2>
         <div id="hazard-list"></div>
       </div>
       <div class="section">
@@ -656,7 +675,28 @@
       <button id="choice-walk" type="button" class="primary"></button>
       <button id="choice-drive" type="button" class="primary"></button>
     </div>
+    <button id="choice-delete" type="button" class="choice-delete"></button>
   </div>
+
+  <!-- Your limits: asked at the start, and from "Change my limits" (ui.js) -->
+  <dialog id="limits-dialog" class="app-dialog" aria-labelledby="limits-title">
+    <h2 id="limits-title"></h2>
+    <p id="limits-intro"></p>
+    <div id="limits-fields"></div>
+    <div class="button-row">
+      <button id="limits-save" type="button" class="primary"></button>
+    </div>
+  </dialog>
+
+  <!-- No route within the user's limits (rover.js) -->
+  <dialog id="route-notice" class="app-dialog" aria-labelledby="route-notice-title">
+    <h2 id="route-notice-title"></h2>
+    <p id="route-notice-text"></p>
+    <div class="button-row">
+      <button id="route-notice-limits" type="button"></button>
+      <button id="route-notice-ok" type="button" class="primary"></button>
+    </div>
+  </dialog>
 
   <!-- Battery empty (rover.js); wording from content.js -->
   <div id="battery-alert" role="alert" hidden>
@@ -686,7 +726,7 @@
       <div class="button-row">
         <button id="route-clear" type="button" disabled></button>
       </div>
-      <label class="check"><input id="route-avoid" type="checkbox" checked> Avoid hazard zones</label>
+      <label class="check"><input id="route-avoid" type="checkbox" checked> Stay within my limits</label>
       <p id="route-avoid-note" class="hint"></p>
       <div id="route-options"></div>
       <div id="route-summary"></div>

@@ -303,7 +303,7 @@
     var zones = [];
     HAZARDS.forEach(function (hz) {
       var userZone = limits[hz.key] < 1;
-      var warned = !userZone && hazardWarning && hazardWarning.key === hz.key;
+      var warned = hazardWarning && hazardWarning.key === hz.key;
       if (!userZone && !warned) return;
       var values = getSmoothField(hz.key);
       var limit = userZone ? limits[hz.key] : hazardWarning.limit;
@@ -313,6 +313,8 @@
         if (values[i] > limit) { mask[i] = 1; count++; }
       }
       if (userZone) coverage[hz.key] = count / mask.length;
+      // The rest of that hazard in soft yellow while warning (also when the
+      // user's own limit draws the zone).
       if (warned && hazardWarning.under != null) {
         var soft = new Uint8Array(W * H);
         for (i = 0; i < soft.length; i++) {
@@ -780,42 +782,106 @@
     hazardListeners.forEach(function (cb) { cb(); });
   }
 
+  // ---- your limits ------------------------------------------------------------
+  //
+  // How much slope and sand the user can handle, set in a popup at the start
+  // (and again from "Change my limits" in the side panel). Ground over these
+  // limits lights up on the map, and routes go the long way round it.
+
+  var DEFAULT_LIMITS = { slope: 0.4, dustRisk: 0.5 }; // the app's caution levels
+  var limitsBox = document.getElementById("limits-dialog");
+  var LTEXT = null; // content.yourLimits
+
+  function limitText(key, v) {
+    if (v >= 1) return LTEXT ? LTEXT.noLimit : "No limit";
+    var value = fieldFor(key).format(v);
+    return LTEXT ? LTEXT.over.replace("{value}", value) : "over " + value;
+  }
+
+  function makeLimitLabel(hz) {
+    var name = document.createElement("span");
+    name.className = "hazard-name";
+    name.appendChild(makeSwatch(hz));
+    name.appendChild(document.createTextNode(fieldFor(hz.key).label));
+    return name;
+  }
+
+  // Side panel: the current limits and a button to change them.
   function buildHazardPanel() {
     hazardList.textContent = "";
     HAZARDS.forEach(function (hz) {
-      var key = hz.key;
-      limits[key] = 1;
-      var field = fieldFor(key);
+      if (!(hz.key in limits)) limits[hz.key] = DEFAULT_LIMITS[hz.key];
       var row = document.createElement("div");
-      row.className = "hazard-row";
+      row.className = "hazard-row" + (limits[hz.key] < 1 ? " is-on" : "");
       row.style.setProperty("--hz", css(hz.color));
       var head = document.createElement("div");
       head.className = "hazard-head";
-      var name = document.createElement("span");
-      name.className = "hazard-name";
-      name.appendChild(makeSwatch(hz));
-      name.appendChild(document.createTextNode(field.label));
       var value = document.createElement("span");
-      head.appendChild(name);
+      value.textContent = limitText(hz.key, limits[hz.key]);
+      head.appendChild(makeLimitLabel(hz));
       head.appendChild(value);
-      var slider = makeSlider(field.label + " limit");
-      slider.style.accentColor = css(hz.color);
-      function sync() {
-        limits[key] = slider.value / 100;
-        var on = limits[key] < 1;
-        row.classList.toggle("is-on", on);
-        value.textContent = on ? "above " + field.format(limits[key]) : "off";
-      }
-      slider.addEventListener("input", function () {
-        sync();
-        hazardsChanged();
-      });
-      sync();
       row.appendChild(head);
-      row.appendChild(slider);
       hazardList.appendChild(row);
     });
+    var actions = document.createElement("div");
+    actions.className = "button-row";
+    var change = document.createElement("button");
+    change.type = "button";
+    change.textContent = LTEXT ? LTEXT.change : "Change my limits";
+    change.addEventListener("click", openLimits);
+    actions.appendChild(change);
+    hazardList.appendChild(actions);
   }
+
+  // The popup: one slider per hazard (all the way right = no limit).
+  function openLimits() {
+    if (!limitsBox || !limitsBox.showModal || limitsBox.open) return;
+    var fields = document.getElementById("limits-fields");
+    fields.textContent = "";
+    HAZARDS.forEach(function (hz) {
+      var key = hz.key;
+      var wrap = document.createElement("div");
+      wrap.className = "limit-field";
+      var head = document.createElement("div");
+      head.className = "hazard-head";
+      var value = document.createElement("strong");
+      var slider = makeSlider(fieldFor(key).label + " limit");
+      slider.style.accentColor = css(hz.color);
+      slider.value = String(Math.round(Math.min(1, limits[key]) * 100));
+      slider.setAttribute("data-key", key);
+      function sync() { value.textContent = limitText(key, slider.value / 100); }
+      slider.addEventListener("input", sync);
+      sync();
+      head.appendChild(makeLimitLabel(hz));
+      head.appendChild(value);
+      wrap.appendChild(head);
+      wrap.appendChild(slider);
+      if (LTEXT && LTEXT.hints && LTEXT.hints[key]) {
+        var hint = document.createElement("p");
+        hint.className = "hint";
+        hint.textContent = LTEXT.hints[key];
+        wrap.appendChild(hint);
+      }
+      fields.appendChild(wrap);
+    });
+    limitsBox.showModal();
+  }
+
+  // Closing the popup (Save, or Escape) keeps what the sliders show.
+  function saveLimits() {
+    [].forEach.call(document.querySelectorAll("#limits-fields input[type=range]"), function (s) {
+      limits[s.getAttribute("data-key")] = s.value / 100;
+    });
+    buildHazardPanel();
+    hazardsChanged();
+  }
+
+  if (limitsBox) {
+    limitsBox.addEventListener("close", saveLimits);
+    document.getElementById("limits-save").addEventListener("click", function () { limitsBox.close(); });
+  }
+
+  window.MapUI.openLimits = openLimits;
 
   function buildSiteLegend() {
     siteLegend.textContent = "";
@@ -1055,15 +1121,24 @@
     choiceSpot = null;
   }
 
+  // mode: "walk", "drive" or "delete" (remove the point, and any drive or
+  // walk planned to it).
   function choose(mode) {
     var spot = choiceSpot;
     closeChoice();
-    if (spot) chooseListeners.forEach(function (cb) { cb(mode, spot); });
+    if (!spot) return;
+    if (mode === "delete") {
+      selected = null;
+      render();
+      showInfo();
+    }
+    chooseListeners.forEach(function (cb) { cb(mode, spot); });
   }
 
   if (choiceEl) {
     document.getElementById("choice-walk").addEventListener("click", function () { choose("walk"); });
     document.getElementById("choice-drive").addEventListener("click", function () { choose("drive"); });
+    document.getElementById("choice-delete").addEventListener("click", function () { choose("delete"); });
     document.getElementById("choice-close").addEventListener("click", closeChoice);
     document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeChoice(); });
     // A press anywhere else closes it.
@@ -1076,6 +1151,7 @@
       document.getElementById("choice-title").textContent = c.title;
       document.getElementById("choice-walk").textContent = c.walk;
       document.getElementById("choice-drive").textContent = c.drive;
+      document.getElementById("choice-delete").textContent = c.remove;
       document.getElementById("choice-close").setAttribute("aria-label", c.close);
     }).catch(function () {});
   }
@@ -1627,6 +1703,17 @@
   buildLayerPanel();
   buildHazardPanel();
   buildSiteLegend();
+  // Ask for the user's limits at the start (wording from content.js).
+  import("./content.js").then(function (mod) {
+    LTEXT = mod.content.yourLimits || null;
+    if (LTEXT) {
+      document.getElementById("limits-title").textContent = LTEXT.title;
+      document.getElementById("limits-intro").textContent = LTEXT.intro;
+      document.getElementById("limits-save").textContent = LTEXT.save;
+    }
+    buildHazardPanel();
+    if (data.ok) openLimits();
+  }).catch(function () {});
   if (has3d()) {
     world = createWorld();
   } else {

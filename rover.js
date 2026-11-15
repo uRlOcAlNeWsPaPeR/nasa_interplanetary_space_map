@@ -40,8 +40,11 @@
     { key: "safest", name: "Safest", goal: "Lowest overall risk, even if it takes longer", hazard: 30, risk: 6, color: "#7dffa0" },
     { key: "balanced", name: "Balanced", goal: "A little longer than the fastest, much less risk", hazard: 4, risk: 2, color: "#ffd166" }
   ];
-  var AVOID_PENALTY = 200; // extra cost for a cell inside a highlighted hazard zone
-  var IMPASSABLE = 5000;   // ground beyond Ridgeback's physical limits
+  // Ground over the user's limits costs more than any detour could, so routes
+  // always go the long way round if there is one; ground beyond Ridgeback's
+  // physical limits costs more still.
+  var LIMIT_PENALTY = 1e5;
+  var IMPASSABLE = 1e7;
   // Used to judge "hazard ground" when a hazard's highlight slider is off.
   // dustRisk is the share of the ground the USGS mapped as sand ripples and
   // dunes (data-layers.js); 0.5 = half the surrounding ground is bedforms.
@@ -170,14 +173,27 @@
   // ---- terrain grid for the planner -------------------------------------------
 
   var terrain = null;
+  // The planner's grid (about 250 m a cell). Each cell takes the worst slope
+  // and sand of 9 samples across it, so narrow steep or sandy patches between
+  // cell centres aren't missed and routes really stay within the limits.
+  var CELL_SAMPLES = [-0.5, 0, 0.5];
   function getTerrain() {
     if (terrain) return terrain;
     terrain = { slope: new Float32Array(GRID_W * GRID_H), dust: new Float32Array(GRID_W * GRID_H) };
     for (var y = 0; y < GRID_H; y++) {
       for (var x = 0; x < GRID_W; x++) {
-        var s = data.sampleTerrainAt(x / (GRID_W - 1), y / (GRID_H - 1));
-        terrain.slope[y * GRID_W + x] = s.slope;
-        terrain.dust[y * GRID_W + x] = s.dustRisk;
+        var maxS = 0, maxD = 0;
+        for (var a = 0; a < 3; a++) {
+          for (var b = 0; b < 3; b++) {
+            var nx = Math.min(1, Math.max(0, (x + CELL_SAMPLES[a]) / (GRID_W - 1)));
+            var ny = Math.min(1, Math.max(0, (y + CELL_SAMPLES[b]) / (GRID_H - 1)));
+            var s = data.sampleTerrainAt(nx, ny);
+            if (s.slope > maxS) maxS = s.slope;
+            if (s.dustRisk > maxD) maxD = s.dustRisk;
+          }
+        }
+        terrain.slope[y * GRID_W + x] = maxS;
+        terrain.dust[y * GRID_W + x] = maxD;
       }
     }
     return terrain;
@@ -196,11 +212,34 @@
       var c = profile.time
         ? 1 / Math.max(0.05, speedFactor({ slope: s, dustRisk: d }))
         : 1 + (onHazard ? profile.hazard : 0) + profile.risk * risk;
-      if ((limS !== null && s > limS) || (limD !== null && d > limD)) c += AVOID_PENALTY;
+      if ((limS !== null && s > limS) || (limD !== null && d > limD)) c += LIMIT_PENALTY;
       if (s > MAX_SLOPE || d > DEEP_SAND) c += IMPASSABLE; // Ridgeback can't drive there at all
       cost[i] = c;
     }
     return cost;
+  }
+
+  // With "Stay within my limits" on: is the destination itself over the
+  // user's limits ("destination"), or does every route cross ground over them
+  // ("crossing")? Checked on the routes as drawn, sampled every ~120 m (the
+  // same check behind each card's hazard %). Driving out of a zone the rover
+  // starts in doesn't count. A route that crosses while another doesn't is
+  // swapped for the clean one, so no offered route breaks the limits.
+  function checkLimits() {
+    var limS = avoidBox.checked ? map.hazardLimit("slope") : null;
+    var limD = avoidBox.checked ? map.hazardLimit("dustRisk") : null;
+    if (limS === null && limD === null) return null;
+    var at = data.sampleTerrainAt(dest.nx, dest.ny);
+    if ((limS !== null && at.slope > limS) || (limD !== null && at.dustRisk > limD)) return "destination";
+    function crosses(r) {
+      return r.metrics.stretches.some(function (st) { return st.from > 0; });
+    }
+    var clean = routes.filter(function (r) { return !crosses(r); });
+    if (!clean.length) return "crossing";
+    routes = routes.map(function (r) {
+      return crosses(r) ? { profile: r.profile, path: clean[0].path, cum: clean[0].cum, metrics: clean[0].metrics } : r;
+    });
+    return null;
   }
 
   // True if the straight segment a-b only crosses cells no dearer than maxCost.
@@ -222,7 +261,7 @@
     points.forEach(function (p) {
       maxCost = Math.max(maxCost, cost[toCell(p.ny, GRID_H) * GRID_W + toCell(p.nx, GRID_W)]);
     });
-    if (maxCost >= AVOID_PENALTY) maxCost = 1; // path had to cross a zone/limit; keep elsewhere clear
+    if (maxCost >= LIMIT_PENALTY) maxCost = 1; // path had to cross a zone/limit; keep elsewhere clear
     var out = [points[0]];
     var i = 0;
     while (i < points.length - 1) {
@@ -509,6 +548,7 @@
   var planMessage = "";
   var scene3d = null;
   var locked = false;     // someone is outside on foot (walk.js): Ridgeback stays parked
+  var notifyNoRoute = false; // the next plan() came from a user action: say so if no route fits
   var sandExit = null;    // last firm ground Ridgeback stood on: once dug into deep sand, it can only back out toward here
 
   function selectedRoute() {
@@ -545,11 +585,20 @@
           var cum = cumulative(path);
           return { profile: profile, path: path, cum: cum, metrics: measure(path, cum) };
         });
-        recommended = compare(routes);
-        if (!userPicked) selectedKey = recommended.key;
-        followSelected(atDest);
+        var limitBreak = checkLimits();
+        if (limitBreak) {
+          // No way there stays within the user's limits: offer no route, say why.
+          routes = null;
+          planMessage = t("rover.noRoute." + limitBreak);
+          if (notifyNoRoute) showNoRoute(planMessage);
+        } else {
+          recommended = compare(routes);
+          if (!userPicked) selectedKey = recommended.key;
+          followSelected(atDest);
+        }
       }
     }
+    notifyNoRoute = false;
     if (!routes) {
       rover.path = null;
       rover.playing = false;
@@ -606,6 +655,7 @@
     dest = d;
     rover.playing = false;
     rover.speed = 0;
+    notifyNoRoute = true;
     plan();
     syncControls();
     renderTelemetry();
@@ -657,7 +707,7 @@
     var anyLimit = map.hazardKeys().some(function (k) { return map.hazardLimit(k) !== null; });
     avoidNote.textContent = anyLimit
       ? ""
-      : "Mark zones under Map layers & hazards (left).";
+      : "Set your limits under Map layers & hazards (left).";
     if (!routes) {
       summary.appendChild(el("p", "empty", planMessage));
       return;
@@ -842,6 +892,9 @@
     document.getElementById("battery-alert-title").textContent = t("rover.batteryAlert.title");
     document.getElementById("battery-alert-text").textContent = t("rover.batteryAlert.text");
     document.getElementById("battery-alert-reset").textContent = t("rover.batteryAlert.button");
+    document.getElementById("route-notice-title").textContent = t("rover.noRoute.title");
+    document.getElementById("route-notice-limits").textContent = t("rover.noRoute.change");
+    document.getElementById("route-notice-ok").textContent = t("rover.noRoute.ok");
     var battery = TEXT && TEXT.rover.stats.battery;
     if (battery) {
       document.getElementById("rb-battery-label").textContent = battery.label;
@@ -1458,7 +1511,16 @@
   // that spot becomes the destination, its three routes appear and the Drive
   // tab opens. Nothing moves until the user presses Start drive.
   map.onChoose(function (mode, p) {
-    if (mode !== "drive" || !p) return;
+    if (!p) return;
+    if (mode === "delete") {
+      // Removing the point also clears a drive planned to it.
+      if (dest && Math.abs(dest.nx - p.nx) < 1e-6 && Math.abs(dest.ny - p.ny) < 1e-6) {
+        toSelect.value = "";
+        toSelect.dispatchEvent(new Event("change"));
+      }
+      return;
+    }
+    if (mode !== "drive") return;
     driveTo(p);
     panel.open = true;
   });
@@ -1496,14 +1558,37 @@
     syncControls();
   }
 
-  avoidBox.addEventListener("change", replanKeepDriving);
+  avoidBox.addEventListener("change", function () {
+    notifyNoRoute = true;
+    replanKeepDriving();
+  });
 
-  // Hazard sliders change what counts as hazard ground, so routes are re-planned.
+  // New limits change what counts as hazard ground, so routes are re-planned
+  // (and the user is told if no route stays within them).
   map.onHazardChange(function () {
     clearTimeout(planTimer);
-    planTimer = setTimeout(replanKeepDriving, 120);
+    planTimer = setTimeout(function () {
+      notifyNoRoute = true;
+      replanKeepDriving();
+    }, 120);
     renderTelemetry();
   });
+
+  // "No safe route" notice: shown when the user's own action (a new
+  // destination or new limits) leaves no route within their limits.
+  var noRouteBox = document.getElementById("route-notice");
+  function showNoRoute(text) {
+    if (!noRouteBox || !noRouteBox.showModal || noRouteBox.open) return;
+    document.getElementById("route-notice-text").textContent = text;
+    noRouteBox.showModal();
+  }
+  if (noRouteBox) {
+    document.getElementById("route-notice-ok").addEventListener("click", function () { noRouteBox.close(); });
+    document.getElementById("route-notice-limits").addEventListener("click", function () {
+      noRouteBox.close();
+      if (map.openLimits) map.openLimits();
+    });
+  }
 
   // ---- minimap marker ---------------------------------------------------------
 
@@ -1831,21 +1916,48 @@
 
     // ---- chase camera (Ridgeback's) -------------------------------------------
     //
-    // Follows behind the rover. Drag to look around, scroll to zoom; the view
-    // eases back behind the rover when you let go.
+    // Starts as a chase camera behind the rover. Drag to move around the map:
+    // left-drag pans across it, right-drag (or Shift-drag) turns and tilts,
+    // scroll zooms. The view stays where you leave it; Chase cam goes back
+    // behind the rover.
 
-    var cam = { off: 0, p: 0.38, d: 13, h: 0 };
+    var cam = { off: 0, p: 0.38, d: 13, h: 0, free: false, yaw: 0, target: null };
     var drag = null;
     var CAM_MIN = 5, CAM_MAX = 140;
+    var PAN_SPEED = 0.0022;   // world units per pixel dragged, per unit of zoom distance
+    var DRAG_START_PX = 3;    // ignore tiny jitters (a right-click still places a point)
+
+    // Leave the chase view, keeping exactly what's on screen.
+    function freeCam() {
+      if (cam.free) return;
+      cam.free = true;
+      cam.yaw = cam.h + Math.PI + cam.off;
+      var c0 = rover.pos ? api.surfacePoint(rover.pos.nx, rover.pos.ny, 0) : new T.Vector3();
+      cam.target = { x: c0.x, z: c0.z };
+    }
     api.dom.addEventListener("pointerdown", function (e) {
-      drag = { x: e.clientX, y: e.clientY };
-      api.dom.setPointerCapture(e.pointerId);
+      drag = { x: e.clientX, y: e.clientY, turn: e.button === 2 || e.shiftKey, moved: false };
+      try { api.dom.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
     });
     api.dom.addEventListener("pointermove", function (e) {
       if (!drag) return;
-      cam.off -= (e.clientX - drag.x) * 0.008;
-      cam.p = Math.min(1.45, Math.max(0.08, cam.p + (e.clientY - drag.y) * 0.006));
-      drag = { x: e.clientX, y: e.clientY };
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_START_PX) return;
+      drag.moved = true;
+      freeCam();
+      if (drag.turn) {
+        cam.yaw -= dx * 0.008;
+        cam.p = Math.min(1.45, Math.max(0.08, cam.p + dy * 0.006));
+      } else {
+        // The ground follows the pointer: move the look-at point against the drag.
+        var s = PAN_SPEED * cam.d, a = cam.yaw;
+        cam.target.x -= (Math.cos(a) * dx + Math.sin(a) * dy) * s;
+        cam.target.z += (Math.sin(a) * dx - Math.cos(a) * dy) * s;
+        cam.target.x = Math.max(-api.planeWidth / 2, Math.min(api.planeWidth / 2, cam.target.x));
+        cam.target.z = Math.max(-api.planeDepth / 2, Math.min(api.planeDepth / 2, cam.target.z));
+      }
+      drag.x = e.clientX;
+      drag.y = e.clientY;
     });
     ["pointerup", "pointercancel"].forEach(function (n) {
       api.dom.addEventListener(n, function () { drag = null; });
@@ -1855,10 +1967,12 @@
       e.preventDefault();
     }, { passive: false });
     document.getElementById("cam-reset").addEventListener("click", function () {
-      cam.off = 0; cam.p = 0.38; cam.d = 13;
+      cam.free = false; cam.off = 0; cam.p = 0.38; cam.d = 13;
     });
     document.getElementById("cam-overview").addEventListener("click", function () {
-      cam.off = 0; cam.p = 1.2; cam.d = CAM_MAX;
+      cam.free = false;
+      freeCam(); // high above the rover, then free to drag around
+      cam.p = 1.2; cam.d = CAM_MAX;
     });
 
     function angleDiff(a, b) {
@@ -1954,16 +2068,21 @@
       api.sun.position.set(c.x + 40, c.y + 60, c.z + 25);
       api.sun.target.position.copy(rover3d.position);
 
-      // Chase camera: ease behind the rover's heading, keep above the ground.
+      // Chase camera eases behind the rover's heading; once dragged, the view
+      // stays where the user left it. Always kept above the ground.
       var h = Math.atan2(fwd.x, fwd.z);
       cam.h += angleDiff(h, cam.h) * Math.min(1, dt * 3);
-      if (!drag) cam.off *= 1 - Math.min(1, dt * 0.8);
-      var a = cam.h + Math.PI + cam.off;
-      var cx = c.x + Math.sin(a) * Math.cos(cam.p) * cam.d;
-      var cz = c.z + Math.cos(a) * Math.cos(cam.p) * cam.d;
-      var cy = Math.max(rover3d.position.y + 1.4 + Math.sin(cam.p) * cam.d, surfaceAt(cx, cz).y + 1);
+      var tx, ty, tz, a;
+      if (cam.free) {
+        tx = cam.target.x; tz = cam.target.z; ty = surfaceAt(tx, tz).y; a = cam.yaw;
+      } else {
+        tx = c.x; tz = c.z; ty = rover3d.position.y; a = cam.h + Math.PI + cam.off;
+      }
+      var cx = tx + Math.sin(a) * Math.cos(cam.p) * cam.d;
+      var cz = tz + Math.cos(a) * Math.cos(cam.p) * cam.d;
+      var cy = Math.max(ty + 1.4 + Math.sin(cam.p) * cam.d, surfaceAt(cx, cz).y + 1);
       api.camera.position.set(cx, cy, cz);
-      api.camera.lookAt(c.x, rover3d.position.y + 1.2, c.z);
+      api.camera.lookAt(tx, ty + 1.2, tz);
     });
 
     return { setRoutes: setRoutes, resetTrail: resetTrail };

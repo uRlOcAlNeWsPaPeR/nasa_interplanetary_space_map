@@ -561,7 +561,20 @@
   // plan the safest walk there and open the Walk tab. It still only sets off
   // when Walk is pressed.
   map.onChoose(function (mode, p) {
-    if (mode !== "walk" || !grid) return;
+    if (!grid) return;
+    if (mode === "delete") {
+      // Removing the point also clears a walk planned to it (not one under way).
+      if (!walk && target && Math.abs(target.nx - p.nx) < 1e-6 && Math.abs(target.ny - p.ny) < 1e-6) {
+        target = null;
+        route = null;
+        message = "";
+        set3d();
+        map.redraw();
+        renderCard();
+      }
+      return;
+    }
+    if (mode !== "walk") return;
     if (!walk) {
       target = { nx: p.nx, ny: p.ny };
       message = "";

@@ -37,6 +37,15 @@ export const content = {
       },
     },
 
+    // When no route stays within the user's limits (rover.js).
+    noRoute: {
+      title: "No safe route",
+      destination: "Your destination is on ground over your limits, so no route can stay within them. Pick another spot or change your limits.",
+      crossing: "Every way there crosses ground over your limits, even the long ways round. Pick another destination or change your limits.",
+      change: "Change my limits",
+      ok: "OK",
+    },
+
     // Pulsing alert in the middle of the screen when the battery hits 0%.
     batteryAlert: {
       title: "Battery empty",
@@ -264,7 +273,23 @@ export const content = {
     title: "What do you want to do here?",
     walk: "Walk here",
     drive: "Drive here",
+    remove: "Remove point",
     close: "Close",
+  },
+
+  // How much slope and sand the user can handle: asked in a popup at the
+  // start (ui.js). Ridgeback's own limits (rover.js) apply whatever is chosen.
+  yourLimits: {
+    title: "How much can you handle?",
+    intro: "Set the steepest slope and the most mapped sand you're willing to drive through. Routes go the long way round anything over these limits, and tell you if no way there stays within them.",
+    noLimit: "No limit",
+    over: "over {value}",
+    hints: {
+      slope: "Ridgeback can't climb ground over 60% (31°), whatever you choose.",
+      dustRisk: "Ridgeback gets stuck where mapped sand is over 80%, whatever you choose.",
+    },
+    save: "Save my limits",
+    change: "Change my limits",
   },
 
   // The small "?" buttons next to each group of actions (help.js).
@@ -277,7 +302,7 @@ export const content = {
     ],
     plan: [
       { name: "Start site / Destination", text: "Pick where Ridgeback sets off and where it should go. Or right-click a spot on the map or the ground, double-click it and choose Drive here." },
-      { name: "Avoid hazard zones", text: "Keeps routes out of the areas you highlight under Map layers & hazards." },
+      { name: "Stay within my limits", text: "Routes go the long way round any ground over your limits. If no way there stays within them, you're told." },
       { name: "Clear", text: "Removes the destination, its routes and the marker on the map." },
       { name: "Route cards", text: "Three options: Fastest, Safest and Balanced. Pick one, then press Start drive in the Drive tab." },
     ],
@@ -288,8 +313,9 @@ export const content = {
       { name: "Slider", text: "Jump to any point along the route." },
     ],
     view: [
-      { name: "Chase cam", text: "Camera follows behind Ridgeback." },
-      { name: "Overview", text: "Camera pulls up high to show the whole area." },
+      { name: "Drag the view", text: "Left-drag moves across the map, right-drag (or Shift-drag) turns and tilts, scroll zooms. The view stays where you leave it." },
+      { name: "Chase cam", text: "Camera goes back behind Ridgeback and follows it." },
+      { name: "Overview", text: "Camera pulls up high over Ridgeback to show the whole area." },
       { name: "Speed (1×)", text: "Runs the simulation faster or slower. The battery drains at the same pace." },
     ],
     inspect: [
