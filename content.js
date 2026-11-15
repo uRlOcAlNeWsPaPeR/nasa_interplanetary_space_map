@@ -144,8 +144,8 @@ export const content = {
             source: "https://www.jpl.nasa.gov/news/press_kits/mars_2020/landing/mission/spacecraft/power",
           },
           {
-            text: "NASA expects Perseverance to keep working until at least 2031. As power slowly falls, the team will have to do less each day.",
-            source: "https://www.yahoo.com/news/articles/nasas-perseverance-mars-rover-could-150000300.html",
+            text: "After testing nearly all of Perseverance's systems, NASA engineers concluded it can keep working until at least 2031.",
+            source: "https://www.jpl.nasa.gov/news/nasas-perseverance-mars-rover-ready-to-roll-for-miles-in-years-ahead/",
           },
           {
             text: "After 13 years Curiosity saves energy by doing tasks at the same time and sleeping early to recharge.",
