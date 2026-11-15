@@ -52,11 +52,6 @@ export const content = {
       text: "Ridgeback has run out of power and can't move. The mission is over.",
       button: "Start over",
     },
-    // The same alert when driving by hand ends the mission another way.
-    tipAlert: {
-      title: "Ridgeback tipped over",
-      text: "The slope was too steep and Ridgeback rolled. Driving across a slope tips it sooner than going straight up or down.",
-    },
 
     // Warning under the risk meter while Ridgeback closes in on a hazard (rover.js).
     warnings: {
@@ -77,8 +72,8 @@ export const content = {
 
     limits: {
       title: "What Ridgeback can't do",
-      steepSlope: "On purple slopes (over your slope limit) it starts to tip, and tips over if you stay on. Across a slope it goes much sooner.",
-      deepSand: "In red sand (over your sand limit) the front wheels dig in. It slows right down and the rear wheels push, draining the battery fast. Reverse out.",
+      steepSlope: "Can't climb very steep slopes. It would tip over.",
+      deepSand: "Gets stuck in deep sand, and can only get out the way it came in (forward or in reverse). Avoid dark, loose-looking patches.",
       extremeCold: "Battery drains much faster in extreme cold. Real rover cells hold about a quarter less charge at −20 °C.",
       dustStorm: "Solar panels barely work during a dust storm.",
     },
@@ -92,10 +87,6 @@ export const content = {
       stuck: "Ridgeback is stuck. Turn toward the way you came in and drive out, then choose a safer route.",
       arrived: "You made it. Ridgeback has reached the destination.",
       failed: "Ridgeback has run out of power. The mission is over.",
-      sinking: "Front wheels stuck in the sand! The rear wheels are pushing hard and the battery is draining fast. Reverse to pull free.",
-      sliding: "Ridgeback is sliding downhill. Get onto flatter ground.",
-      tipping: "Ridgeback is starting to tip over! Get off this purple slope now, straight up or down, not across it.",
-      tipped: "Ridgeback tipped over on the slope. The mission is over.",
     },
 
     hints: {
@@ -343,8 +334,8 @@ export const content = {
       { name: "Reset layers", text: "Back to just the satellite image." },
     ],
     hazards: [
-      { name: "Slope (purple)", text: "The steepest ground you'll drive on. Ground over it is marked purple. Drive onto purple by hand and Ridgeback starts to tip, then tips over if you stay on." },
-      { name: "Mapped sand (red)", text: "The most sand you'll drive through. Ground over it is marked red. Drive into red by hand and the front wheels get stuck, costing lots of battery to get out." },
+      { name: "Slope (magenta)", text: "The steepest ground you'll drive on. Ground over it is marked magenta, and Ridgeback stops at it. It can't climb anything over 60%." },
+      { name: "Mapped sand (red)", text: "The most sand you'll drive through. Ground over it is marked red, and Ridgeback stops at it. In deep sand it gets stuck and has to drive out the way it came." },
       { name: "Change my limits", text: "Set new limits. Routes go the long way round anything over them." },
     ],
     map: [
