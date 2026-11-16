@@ -126,6 +126,14 @@ body.phone #sheet.is-dragging { transition: none; }
   font-weight: 600;
 }
 #sheet-tabs button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+/* "How to use" (guide.js): just the "?" at the end of the tab bar */
+body.phone .rb-head { display: none; }
+#sheet-tabs #guide-open { flex: none; width: 44px; padding: 0; justify-content: center; border: none; background: transparent; }
+#sheet-tabs #guide-open .guide-label { display: none; }
+#sheet-tabs #guide-open .guide-q { width: 26px; height: 26px; font-size: 15px; }
+body.phone .app-dialog.guide { width: calc(100% - 16px); max-height: calc(100vh - 24px - var(--safe-t) - var(--safe-b)); padding: 16px 16px 20px; }
+body.phone .guide-body { grid-template-columns: 1fr; gap: 10px; }
+body.phone .guide-section dl { font-size: 14px; }
 #sheet[data-state="peek"] #sheet-tabs button[aria-selected="true"] { background: var(--btn); color: var(--text); }
 #sheet-body {
   flex: 1;

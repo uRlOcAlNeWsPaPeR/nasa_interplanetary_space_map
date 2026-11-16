@@ -188,7 +188,48 @@
     /* ---- Ridgeback card ---- */
     #rb-card h1 { margin: 0; font-size: 17px; font-weight: 600; }
     .tag { display: none; }
-    #rb-card h1 { margin-bottom: 10px; }
+    .rb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+
+    /* ---- "How to use" button and guide (guide.js) ---- */
+    .guide-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px 3px 4px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .guide-q {
+      display: inline-grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--on-accent);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .guide-btn.is-new { animation: guide-pulse 1.6s ease-in-out infinite; }
+    @keyframes guide-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+      50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent); }
+    }
+    @media (prefers-reduced-motion: reduce) { .guide-btn.is-new { animation: none; border-color: var(--accent); } }
+    .app-dialog.guide { max-width: 860px; width: calc(100% - 32px); max-height: calc(100vh - 48px); overflow-y: auto; padding: 20px 24px 24px; }
+    .guide-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .guide-head h2 { margin: 0; font-size: 20px; }
+    .guide-close { width: 36px; height: 36px; padding: 0; font-size: 20px; line-height: 1; flex: none; }
+    .guide-intro { margin: 4px 0 16px; color: var(--muted); font-size: 13px; }
+    .guide-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+    .guide-section { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--btn); }
+    .guide-section h3 { margin: 0 0 8px; font-size: 14px; color: var(--accent); }
+    .guide-section dl { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 13px; }
+    .guide-section dt { color: var(--text); font-weight: 600; margin-top: 6px; }
+    .guide-section dt:first-child { margin-top: 0; }
+    .guide-section dd { margin: 0; text-align: left; color: var(--muted); font-variant-numeric: normal; }
     .row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
     #rb-battery-label { cursor: help; border-bottom: 1px dotted var(--muted); }
     .bar { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
@@ -694,7 +735,11 @@
 
   <div id="hud-left" class="column">
     <section id="rb-card" class="card" aria-live="polite">
-      <h1 id="rb-name"></h1>
+      <div class="rb-head">
+        <h1 id="rb-name"></h1>
+        <!-- "How to use" guide (guide.js); on phones it moves to the tab bar -->
+        <button id="guide-open" type="button" class="guide-btn" aria-haspopup="dialog"></button>
+      </div>
       <p class="tag" id="rb-tag"></p>
       <div class="row"><span id="rb-battery-label">Battery</span><span id="rb-pct">100%</span></div>
       <div class="bar"><div id="rb-fill" class="ok"></div></div>
@@ -903,6 +948,16 @@
     <button type="button" data-drive="right" aria-label="Turn right">&#8594;</button>
   </div>
 
+  <!-- "How to use": every click, tap and key (guide.js); wording from content.js -->
+  <dialog id="guide" class="app-dialog guide" aria-labelledby="guide-title">
+    <div class="guide-head">
+      <h2 id="guide-title"></h2>
+      <button id="guide-close" type="button" class="guide-close" aria-label="Close">&times;</button>
+    </div>
+    <p id="guide-intro" class="guide-intro"></p>
+    <div id="guide-body" class="guide-body"></div>
+  </dialog>
+
   <!-- Walk warning (walk.js); wording from content.js -->
   <dialog id="walk-confirm" aria-labelledby="walk-confirm-title">
     <h2 id="walk-confirm-title"></h2>
@@ -955,6 +1010,7 @@
     })();
   </script>
   <script type="module" src="help.js"></script>
+  <script type="module" src="guide.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- Real NASA/USGS data for Jezero crater (built by tools/build_jezero_data.py) -->
   <script src="data/jezero/jezero-data.js"></script>

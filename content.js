@@ -343,6 +343,74 @@ export const content = {
     ],
   },
 
+  // "How to use" guide (guide.js): everything you can click, tap and press.
+  // An item's `mouse` text shows on computers, `touch` on phones and
+  // tablets, `text` on both. An item with only one of them shows only there.
+  guide: {
+    button: "How to use",
+    title: "How to use Ridgeback",
+    intro: "Everything you can click, tap and press, in one place.",
+    introTouch: "Everything you can tap, hold and drag, in one place.",
+    close: "Close",
+    sections: [
+      {
+        title: "Look around",
+        items: [
+          { name: "Look around", mouse: "Drag the 3D view while Ridgeback is stopped.", touch: "Drag the 3D view with one finger while Ridgeback is stopped." },
+          { name: "Zoom", mouse: "Scroll on the 3D view or the map.", touch: "Pinch the 3D view or the map." },
+          { name: "Camera", text: "In the Drive tab: Chase cam follows behind Ridgeback, 1st person looks out from its deck." },
+        ],
+      },
+      {
+        title: "Pick a spot",
+        items: [
+          { name: "Place a point", mouse: "Right-click the ground or the map (on a Mac trackpad, Ctrl-click).", touch: "Press and hold the ground or the map." },
+          { name: "Walk, drive or remove", mouse: "Double-click the point, then choose Walk here, Drive here or Remove point.", touch: "The choice opens as soon as you place the point. Tap the point to open it again." },
+          { name: "Its readings", mouse: "The Inspect tab shows elevation, slope, sand and more for the point.", touch: "The Info tab shows elevation, slope, sand and more for the point." },
+        ],
+      },
+      {
+        title: "Drive Ridgeback",
+        items: [
+          { name: "Choose where to go", text: "In the Plan tab, pick a Destination, or choose Drive here on a point." },
+          { name: "Pick a route", text: "Fastest, Safest or Balanced. Routes go around slopes over 60% and deep sand." },
+          { name: "Drive the route", text: "In the Drive tab, choose Auto and press Start drive. The slider jumps along the route." },
+          { name: "Steer yourself", mouse: "W A S D or the arrow keys, or hold the on-screen arrow buttons.", touch: "Hold the on-screen arrow buttons." },
+          { name: "Speed", text: "In the Drive tab, run the simulation from 0.5× to 8×." },
+          { name: "Low battery", text: "Press Wait and recharge to refill it in sunlight. Warnings come at 20%, 10% and 5%." },
+          { name: "Stuck in deep sand", text: "You can only reverse straight back out the way you came." },
+          { name: "Start over", text: "Back to the start site with a full battery." },
+        ],
+      },
+      {
+        title: "Walk on foot",
+        items: [
+          { name: "How far you can walk", text: "Open the Walk tab: the coloured ground is where an astronaut can walk and get back safely." },
+          { name: "Plan a walk", mouse: "Right-click a spot in the coloured area, double-click it and choose Walk here.", touch: "Press and hold a spot in the coloured area and choose Walk here." },
+          { name: "Go", text: "Check the times and distance, then press Walk. A risky route (yellow) asks you to confirm first." },
+        ],
+      },
+      {
+        title: "Map and layers",
+        items: [
+          { name: "Layers", mouse: "Tick a layer to paint it on the map and the ground. Its slider fades it in or out.", touch: "In the Map tab, tick a layer to paint it on the map and the ground. Its slider fades it in or out." },
+          { name: "Mapped sand", text: "Always shown in yellow, darker where it's deeper. Over 80% is deep sand." },
+          { name: "Move the map", mouse: "+ and − or scroll to zoom, drag to move when zoomed, Fit to see it all.", touch: "Pinch or + and − to zoom, drag to move when zoomed, Fit to see it all." },
+          { name: "Bigger map", mouse: "Expand map makes the map larger." },
+        ],
+      },
+      {
+        title: "Panels",
+        items: [
+          { name: "Switch panels", mouse: "Use the Plan, Drive, Walk and Inspect tabs at the top right.", touch: "Tap Plan, Drive, Walk, Map or Info at the bottom." },
+          { name: "Resize the panel", touch: "Drag the panel up or down. Tap the open tab to fold it away." },
+          { name: "More help", text: "Each panel has a ? button that explains its buttons." },
+          { name: "Close a pop-up", mouse: "Press Esc or click outside it.", touch: "Tap outside it or tap ×." },
+        ],
+      },
+    ],
+  },
+
   // Phone layout (phone.js): the bottom sheet's tabs.
   phone: {
     tabs: { plan: "Plan", drive: "Drive", walk: "Walk", map: "Map", info: "Info" },

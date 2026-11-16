@@ -143,6 +143,7 @@
     TABS.forEach(function (t) {
       t.parts().forEach(function (el) { move(el, panes[t.key]); });
     });
+    move($("guide-open"), $("sheet-tabs")); // "How to use" sits at the end of the tab bar
     var open = Object.keys(PANEL_TAB).filter(function (id) { return $(id) && $(id).open; })[0];
     selectTab(open ? PANEL_TAB[open] : "plan", false);
     setState(sheet.dataset.state || "half");
